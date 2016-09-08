@@ -9,6 +9,7 @@ all:
 
 install:
 	$(MAKE) -C ext install
+	$(MAKE) -C kafka install
 
 clean:
 	$(MAKE) -C ext clean

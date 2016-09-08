@@ -58,6 +58,7 @@ typedef int (*error_handler_cb)(void *, int err, const char *);
 
 
 #define FRAME_READER_ERROR_LEN 512
+#define MAX_TABLE_CNT FRAME_READER_ERROR_LEN /* k4m */
 
 typedef struct {
     Oid                 relid;       /* Uniquely identifies a table, even when it is renamed */
@@ -89,6 +90,8 @@ typedef struct {
     avro_value_t frame_value;        /* Avro value for a frame */
     avro_reader_t avro_reader;       /* In-memory buffer reader */
     char error[FRAME_READER_ERROR_LEN]; /* Buffer for error messages */
+	int64_t active_schema_list[MAX_TABLE_CNT];	/* k4m: send only active schema to kafka */
+    int num_active_schemas;          			/* k4m: send only active schema to kafka */
 } frame_reader;
 
 typedef frame_reader *frame_reader_t;

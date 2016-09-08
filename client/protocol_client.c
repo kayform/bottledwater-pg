@@ -25,6 +25,20 @@
             exit(1); \
         } \
     } while (0)
+/* k4m: send only active schema to kafka */
+#define CHECK_ACTIVE_SCHEMA(err, reader, relid) \
+    do { \
+		int i = 0, found = 0; \
+		for(i = 0; i < reader->num_active_schemas; i++){ \
+			if(reader->active_schema_list[i] == relid){ \
+				found = 1; \
+				break; \
+			} \
+		} \
+		if(!found) \
+			return err; \
+} while (0)
+/* k4m: send only active schema to kafka */
 
 
 int process_frame(avro_value_t *frame_val, frame_reader_t reader, uint64_t wal_pos);
@@ -186,6 +200,9 @@ int process_frame_insert(avro_value_t *record_val, frame_reader_t reader, uint64
                 "Received insert for unknown relid %" PRIu64, relid);
     }
 
+	/* k4m: send only active schema to kafka */
+	CHECK_ACTIVE_SCHEMA(err, reader, relid);
+
     if (key_present) {
         check_avro(err, reader, avro_value_get_current_branch(&key_val, &branch_val));
         check_avro(err, reader, avro_value_get_bytes(&branch_val, &key_bin, &key_len));
@@ -226,6 +243,9 @@ int process_frame_update(avro_value_t *record_val, frame_reader_t reader, uint64
                 "Received update for unknown relid %" PRIu64, relid);
     }
 
+	/* k4m: send only active schema to kafka */
+	CHECK_ACTIVE_SCHEMA(err, reader, relid);
+	
     if (key_present) {
         check_avro(err, reader, avro_value_get_current_branch(&key_val, &branch_val));
         check_avro(err, reader, avro_value_get_bytes(&branch_val, &key_bin, &key_len));
@@ -271,6 +291,9 @@ int process_frame_delete(avro_value_t *record_val, frame_reader_t reader, uint64
                 "Received delete for unknown relid %" PRIu64, relid);
     }
 
+	/* k4m: send only active schema to kafka */
+	CHECK_ACTIVE_SCHEMA(err, reader, relid);
+	
     if (key_present) {
         check_avro(err, reader, avro_value_get_current_branch(&key_val, &branch_val));
         check_avro(err, reader, avro_value_get_bytes(&branch_val, &key_bin, &key_len));
