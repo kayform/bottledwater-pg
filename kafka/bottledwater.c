@@ -13,6 +13,7 @@
 #include <signal.h>
 #include <unistd.h>		/* k4m */
 #include <sys/stat.h>	/* k4m */
+#include <sys/file.h>
 
 #define DEFAULT_REPLICATION_SLOT "bottledwater"
 #define APP_NAME "bottledwater"
@@ -1134,13 +1135,28 @@ static void handle_reload_signal(int sig) {
 
 static int make_pidfile(producer_context_t context){
 	FILE * fp = NULL;
+	int fd;
 	snprintf(pidfile, sizeof(pidfile)-1, "/tmp/bw_%s.pid", context->client->repl.slot_name);
-	if ((fp = fopen(pidfile, "w")) == NULL){
-		return 1; 
+
+    /* Check the process already exists. if not exist, create file*/
+	if (((fd = open(pidfile, O_RDWR|O_CREAT|O_EXCL, 0644)) == -1)
+			|| ((fp = fdopen(fd, "r+")) == NULL) ) {
+		return 1;
+	}
+
+	if (flock(fd, LOCK_EX|LOCK_NB) == -1) {
+		fclose(fp);
+		return 1;
 	}
 
     fprintf(fp, "%d", getpid());
-    fclose(fp);
+	fflush(fp);
+
+	if (flock(fd, LOCK_UN) == -1) {
+		close(fd);
+		return 1;
+	}
+    close(fd);
 
     /* Make PID file world readable */
     if (chmod(pidfile, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH) != 0)
@@ -1159,8 +1175,10 @@ int main(int argc, char **argv) {
     producer_context_t context = init_producer(init_client());
     parse_options(context, argc, argv);
 
-	if(make_pidfile(context))				/* k4m */
+	if(make_pidfile(context)){				/* k4m */
         config_error("Can't make pidfile.");/* k4m */
+        exit(1);
+	}
 
     start_producer(context);
     ensure(context, db_client_start(context->client));
