@@ -70,7 +70,7 @@ typedef enum {
     ERROR_POLICY_EXIT
 } error_policy_t;
 
-static const char* DEFAULT_ERROR_POLICY_NAME = "exit";
+static const char* DEFAULT_ERROR_POLICY_NAME = PROTOCOL_ERROR_POLICY_EXIT;
 static const error_policy_t DEFAULT_ERROR_POLICY = ERROR_POLICY_EXIT;
 
 
@@ -138,7 +138,7 @@ typedef struct {
 log_files_t logfiles[MAXFILECNT];
 #endif
 
-void usage(void);
+void usage(int exit_status);
 void parse_options(producer_context_t context, int argc, char **argv);
 char *parse_config_option(char *option);
 void init_schema_registry(producer_context_t context, char *url);
@@ -181,7 +181,7 @@ void start_producer(producer_context_t context);
 void exit_nicely(producer_context_t context, int status);
 
 
-void usage() {
+void usage(int exit_status) {
     fprintf(stderr,
             "Exports a snapshot of a PostgreSQL database, followed by a stream of changes,\n"
             "and sends the data to a Kafka cluster.\n\n"
@@ -204,13 +204,14 @@ void usage() {
             "  -p, --topic-prefix=prefix\n"
             "                          String to prepend to all topic names.\n"
             "                          e.g. with --topic-prefix=postgres, updates from table\n"
-            "                          'users' will be written to topic 'postgres-users'.\n"
+            "                          'users' will be written to topic 'postgres.users'.\n"
             "  -e, --on-error=[log|exit]   (default: %s)\n"
             "                          What to do in case of a transient error, such as\n"
             "                          failure to publish to Kafka.\n"
             "  -x, --skip-snapshot     Skip taking a consistent snapshot of the existing\n"
             "                          database contents and just start streaming any new\n"
-            "                          updates.\n"
+            "                          updates.  (Ignored if the replication slot already\n"
+            "                          exists.)\n"
             "  -C, --kafka-config property=value\n"
             "                          Set global configuration property for Kafka producer\n"
             "                          (see --config-help for list of properties).\n"
@@ -220,7 +221,9 @@ void usage() {
 #endif
             "                          Set topic configuration property for Kafka producer.\n"
             "  --config-help           Print the list of configuration properties. See also:\n"
-            "            https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md\n",
+            "            https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md\n"
+            "  -h, --help\n"
+            "                          Print this help text.\n",
 
             progname,
             DEFAULT_REPLICATION_SLOT,
@@ -228,7 +231,7 @@ void usage() {
             DEFAULT_SCHEMA_REGISTRY,
             DEFAULT_OUTPUT_FORMAT_NAME,
             DEFAULT_ERROR_POLICY_NAME);
-    exit(1);
+    exit(exit_status);
 }
 
 /* Parse command-line options */
@@ -250,6 +253,7 @@ void parse_options(producer_context_t context, int argc, char **argv) {
         {"save-log",    	no_argument,	   NULL, 'S'}, /* TTA VNV */
 #endif
         {"config-help",     no_argument,       NULL,  1 },
+        {"help",            no_argument,       NULL, 'h'},
         {NULL,              0,                 NULL,  0 }
     };
 
@@ -258,9 +262,9 @@ void parse_options(producer_context_t context, int argc, char **argv) {
     int option_index;
     while (true) {
 #ifdef TTA_VNV
-        int c = getopt_long(argc, argv, "d:s:b:r:f:up:e:xC:T:S", options, &option_index);
+        int c = getopt_long(argc, argv, "d:s:b:r:f:up:e:xC:T:hS", options, &option_index);
 #else
-        int c = getopt_long(argc, argv, "d:s:b:r:f:up:e:xC:T:", options, &option_index);
+        int c = getopt_long(argc, argv, "d:s:b:r:f:up:e:xC:T:h", options, &option_index);
 #endif
         if (c == -1) break;
 
@@ -306,21 +310,23 @@ void parse_options(producer_context_t context, int argc, char **argv) {
 #endif
             case 1:
                 rd_kafka_conf_properties_show(stderr);
-                exit(1);
+                exit(0);
                 break;
+            case 'h':
+                usage(0);
             default:
-                usage();
+                usage(1);
         }
     }
 
-    if (!context->client->conninfo || optind < argc) usage();
+    if (!context->client->conninfo || optind < argc) usage(1);
 
     if (context->output_format == OUTPUT_FORMAT_AVRO && !context->registry) {
         init_schema_registry(context, DEFAULT_SCHEMA_REGISTRY);
     } else if (context->output_format == OUTPUT_FORMAT_JSON && context->registry) {
         config_error("Specifying --schema-registry doesn't make sense for "
                      "--output-format=json");
-        usage();
+        usage(1);
     }
 }
 
@@ -370,21 +376,23 @@ const char* output_format_name(format_t format) {
 }
 
 void set_error_policy(producer_context_t context, char *policy) {
-    if (!strcmp("log", policy)) {
+    if (!strcmp(PROTOCOL_ERROR_POLICY_LOG, policy)) {
         context->error_policy = ERROR_POLICY_LOG;
-    } else if (!strcmp("exit", policy)) {
+    } else if (!strcmp(PROTOCOL_ERROR_POLICY_EXIT, policy)) {
         context->error_policy = ERROR_POLICY_EXIT;
     } else {
         config_error("invalid error policy (expected log or exit): %s", policy);
         exit(1);
     }
+
+    db_client_set_error_policy(context->client, policy);
 }
 
 const char* error_policy_name(error_policy_t policy) {
     switch (policy) {
-        case ERROR_POLICY_LOG: return "log";
-        case ERROR_POLICY_EXIT: return "exit";
-        case OUTPUT_FORMAT_UNDEFINED: return "undefined (probably a bug)";
+        case ERROR_POLICY_LOG: return PROTOCOL_ERROR_POLICY_LOG;
+        case ERROR_POLICY_EXIT: return PROTOCOL_ERROR_POLICY_EXIT;
+        case ERROR_POLICY_UNDEFINED: return "undefined (probably a bug)";
         default: return "unknown (probably a bug)";
     }
 }
@@ -409,8 +417,13 @@ char* topic_name_from_avro_schema(avro_schema_t schema) {
 
     const char *table_name = avro_schema_name(schema);
 
+#ifdef AVRO_1_8
     /* Gets the avro schema namespace which contains the Postgres schema name */
     const char *namespace = avro_schema_namespace(schema);
+#else
+#warning "avro-c older than 1.8.0, will not include Postgres schema in Kafka topic name"
+    const char namespace[] = "dummy";
+#endif
 
     char topic_name[TABLE_NAME_BUFFER_LENGTH];
     /* Strips the beginning part of the namespace to extract the Postgres schema name
@@ -1007,6 +1020,7 @@ client_context_t init_client() {
 
     client_context_t client = db_client_new();
     client->app_name = strdup(APP_NAME);
+    db_client_set_error_policy(client, DEFAULT_ERROR_POLICY_NAME);
     client->allow_unkeyed = false;
     client->repl.slot_name = strdup(DEFAULT_REPLICATION_SLOT);
     client->repl.output_plugin = strdup(OUTPUT_PLUGIN);
