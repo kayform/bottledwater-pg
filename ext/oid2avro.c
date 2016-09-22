@@ -303,9 +303,19 @@ avro_schema_t schema_for_oid(predef_schema *predef, Oid typid) {
             value_schema = schema_for_time_tz(predef);
             break;
         case TIMESTAMPOID:   /* timestamp without time zone: datetime, microseconds since epoch */
-            return schema_for_timestamp(predef, false);
+#if 0
+			return schema_for_timestamp(predef, false);
+#else
+			value_schema = avro_schema_long();
+			break;
+#endif
         case TIMESTAMPTZOID: /* timestamp with time zone, timestamptz: datetime with time zone */
+#if 0
             return schema_for_timestamp(predef, true);
+#else
+			value_schema = avro_schema_long();
+			break;
+#endif
         case INTERVALOID:    /* @ <number> <units>, time interval */
             value_schema = schema_for_interval(predef);
             break;
@@ -368,7 +378,11 @@ int update_avro_with_datum(avro_value_t *output_val, Oid typid, Datum pg_datum) 
     avro_value_t branch_val;
 
     /* Types that handle nullability themselves */
+#if 0
     if (typid == DATEOID || typid == TIMESTAMPOID || typid == TIMESTAMPTZOID) {
+#else
+    if (typid == DATEOID || typid == TIMESTAMPTZOID) {
+#endif
         branch_val = *output_val;
     } else {
         check(err, avro_value_set_branch(output_val, 1, &branch_val));
@@ -422,10 +436,20 @@ int update_avro_with_datum(avro_value_t *output_val, Oid typid, Datum pg_datum) 
             check(err, update_avro_with_time_tz(&branch_val, DatumGetTimeTzADTP(pg_datum)));
             break;
         case TIMESTAMPOID:
+#if 0
             check(err, update_avro_with_timestamp(output_val, false, DatumGetTimestamp(pg_datum)));
+#else
+            check(err, avro_value_set_long(&branch_val,
+					DatumGetTimestamp(pg_datum) + (POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * USECS_PER_DAY));
+#endif
             break;
         case TIMESTAMPTZOID:
+#if 0
             check(err, update_avro_with_timestamp(output_val, true, DatumGetTimestampTz(pg_datum)));
+#else
+            check(err, avro_value_set_long(&branch_val,
+					DatumGetTimestampTz(pg_datum) + (POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * USECS_PER_DAY));
+#endif
             break;
         case INTERVALOID:
             check(err, update_avro_with_interval(&branch_val, DatumGetIntervalP(pg_datum)));

@@ -526,6 +526,22 @@ static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
 
     char *topic_name = topic_name_from_avro_schema(row_schema);
 
+	/* k4m: send only active schema to kafka */
+#define MAP_TABLE "tbl_mapps"
+#define MAP_HIST_TABLE "tbl_mapps_hist"
+#define CONN_TABLE "kafka_con_config"
+#define MAP_TABLE_LEN strlen(MAP_TABLE)
+#define MAP_HIST_TABLE_LEN strlen(MAP_HIST_TABLE)
+#define CONN_TABLE_LEN strlen(CONN_TABLE)
+
+	if(topic_name)
+		if((strlen(topic_name) == MAP_TABLE_LEN && !strncmp(MAP_TABLE, topic_name, MAP_TABLE_LEN))
+		||(strlen(topic_name) == MAP_TABLE_LEN && !strncmp(CONN_TABLE, topic_name, CONN_TABLE_LEN))
+		||(strlen(topic_name) == CONN_TABLE_LEN && !strncmp(CONN_TABLE, topic_name, CONN_TABLE_LEN))){
+			free(topic_name);
+			return 0;
+		}
+
     table_metadata_t table = table_mapper_update(context->mapper, relid, topic_name,
             key_schema_json, key_schema_len, row_schema_json, row_schema_len);
 
@@ -1143,7 +1159,6 @@ static void handle_shutdown_signal(int sig) {
 /* k4m: signal handler SIGUSR2 for reloading config */
 static void handle_reload_signal(int sig) {
     received_reload_signal = sig;
-	printf("signal [%d]\n", received_reload_signal );
     signal(SIGUSR2, handle_reload_signal);
 }
 
