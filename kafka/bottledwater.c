@@ -128,15 +128,6 @@ static char *progname;
 static int received_shutdown_signal = 0;
 extern int received_reload_signal;/* k4m : reload table list flag */
 static char pidfile[MAXPGPATH];	/* k4m : pid file */
-#ifdef TTA_VNV
-static int save_row;
-#define MAXFILECNT 32
-typedef struct {
-	FILE *fp;
-	Oid relid;
-} log_files_t;
-log_files_t logfiles[MAXFILECNT];
-#endif
 
 void usage(int exit_status);
 void parse_options(producer_context_t context, int argc, char **argv);
@@ -216,9 +207,6 @@ void usage(int exit_status) {
             "                          Set global configuration property for Kafka producer\n"
             "                          (see --config-help for list of properties).\n"
             "  -T, --topic-config property=value\n"
-#ifdef TTA_VNV
-            "  -S, --save-log\n" /* TTA VNV */
-#endif
             "                          Set topic configuration property for Kafka producer.\n"
             "  --config-help           Print the list of configuration properties. See also:\n"
             "            https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md\n"
@@ -249,9 +237,6 @@ void parse_options(producer_context_t context, int argc, char **argv) {
         {"skip-snapshot",   no_argument,       NULL, 'x'},
         {"kafka-config",    required_argument, NULL, 'C'},
         {"topic-config",    required_argument, NULL, 'T'},
-#ifdef TTA_VNV
-        {"save-log",    	no_argument,	   NULL, 'S'}, /* TTA VNV */
-#endif
         {"config-help",     no_argument,       NULL,  1 },
         {"help",            no_argument,       NULL, 'h'},
         {NULL,              0,                 NULL,  0 }
@@ -261,11 +246,7 @@ void parse_options(producer_context_t context, int argc, char **argv) {
 
     int option_index;
     while (true) {
-#ifdef TTA_VNV
-        int c = getopt_long(argc, argv, "d:s:b:r:f:up:e:xC:T:hS", options, &option_index);
-#else
         int c = getopt_long(argc, argv, "d:s:b:r:f:up:e:xC:T:h", options, &option_index);
-#endif
         if (c == -1) break;
 
         switch (c) {
@@ -302,12 +283,6 @@ void parse_options(producer_context_t context, int argc, char **argv) {
             case 'T':
                 set_topic_config(context, optarg, parse_config_option(optarg));
                 break;
-#ifdef TTA_VNV
-            case 'S': //TTA
-				save_row = 1;
-				memset (logfiles, 0x00, sizeof(log_files_t)*MAXFILECNT);
-                break;
-#endif
             case 1:
                 rd_kafka_conf_properties_show(stderr);
                 exit(0);
@@ -560,232 +535,10 @@ static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
     return 0;
 }
 
-//TTA
-//
-#ifdef TTA_VNV
-#define TIMELEN 32
-static int get_cur_time(char *now){
-	char buffer[26];
-//	int millisec;
-	suseconds_t microsec;
-	struct tm* tm_info;
-	struct timeval tv;
-
-	gettimeofday(&tv, NULL);
-
-	//  millisec = lrint(tv.tv_usec/1000.0); // Round to nearest millisec
-//	millisec = tv.tv_usec/1000; // Round to nearest millisec
-	microsec = tv.tv_usec; // Round to nearest millisec
-	if (microsec >=1000000) { // Allow for rounding up to nearest second
-		microsec -=1000000;
-		tv.tv_sec++;
-	}
-
-	tm_info = localtime(&tv.tv_sec);
-
-	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
-	snprintf(now, TIMELEN-1, "%s.%06ld", buffer, microsec);
-	return 0;
-}
-
-static int print_insert_row(producer_context_t context, uint64_t wal_pos, Oid relid,
-        const void *key_bin, size_t key_len, avro_value_t *key_val,
-        const void *new_bin, size_t new_len, avro_value_t *new_val, int index) {
-    int err = 0;
-    char *key_json, *new_json;
-	char now[TIMELEN];
-    const char *table_name = avro_schema_name(avro_value_get_schema(new_val));
-    check(err, avro_value_to_json(new_val, 1, &new_json));
-
-	table_metadata_t table = table_mapper_lookup(context->mapper, relid);
-	if (!table) {
-		log_error("relid %" PRIu32 " has no registered schema", relid);
-		return -1;
-	}
-
-	get_cur_time(now);
-    if (key_val) {
-        check(err, avro_value_to_json(key_val, 1, &key_json));
-        //printf("insert to %s: %s --> %s\n", table_name, key_json, new_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):%s to %s: %s --> %s\n", now, rd_kafka_topic_name(table->topic),
-		"insert", table_name, key_json, new_json);
-        free(key_json);
-    } else {
-        //printf("insert to %s: %s\n", table_name, new_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s)%s to %s: %s\n", now, rd_kafka_topic_name(table->topic),
-		"insert", table_name, new_json);
-    }
-	fflush(logfiles[index].fp);
-
-    free(new_json);
-    return err;
-}
-
-static int print_update_row(producer_context_t context, uint64_t wal_pos, Oid relid,
-        const void *key_bin, size_t key_len, avro_value_t *key_val,
-        const void *old_bin, size_t old_len, avro_value_t *old_val,
-        const void *new_bin, size_t new_len, avro_value_t *new_val, int index) {
-    int err = 0;
-    char *key_json = NULL, *old_json = NULL, *new_json = NULL;
-	char now[TIMELEN];
-    const char *table_name = avro_schema_name(avro_value_get_schema(new_val));
-    check(err, avro_value_to_json(new_val, 1, &new_json));
-
-	table_metadata_t table = table_mapper_lookup(context->mapper, relid);
-	if (!table) {
-		log_error("relid %" PRIu32 " has no registered schema", relid);
-		return -1;
-	}
-
-    if (old_val) check(err, avro_value_to_json(old_val, 1, &old_json));
-    if (key_val) check(err, avro_value_to_json(key_val, 1, &key_json));
-
-	get_cur_time(now);
-    if (key_json && old_json) {
-//        printf("update to %s: key %s: %s --> %s\n", table_name, key_json, old_json, new_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):update to %s: key %s: %s --> %s\n", now, 
-				rd_kafka_topic_name(table->topic), table_name, key_json, old_json, new_json);
-    } else if (old_json) {
-        //printf("update to %s: %s --> %s\n", table_name, old_json, new_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):update to %s: %s --> %s\n", now, rd_kafka_topic_name(table->topic),
-				table_name, old_json, new_json);
-    } else if (key_json) {
-        //printf("update to %s: key %s: %s\n", table_name, key_json, new_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):update to %s: key %s: %s\n", now, rd_kafka_topic_name(table->topic),
-				table_name, key_json, new_json);
-    } else {
-        //printf("update to %s: (?) --> %s\n", table_name, new_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):update to %s: (?) --> %s\n", now, rd_kafka_topic_name(table->topic),
-				table_name, new_json);
-    }
-	fflush(logfiles[index].fp);
-
-    if (key_json) free(key_json);
-    if (old_json) free(old_json);
-    free(new_json);
-    return err;
-}
-
-static int print_delete_row(producer_context_t context, uint64_t wal_pos, Oid relid,
-        const void *key_bin, size_t key_len, avro_value_t *key_val,
-        const void *old_bin, size_t old_len, avro_value_t *old_val, int index) {
-    int err = 0;
-    char *key_json = NULL, *old_json = NULL;
-    const char *table_name = NULL;
-	char now[TIMELEN];
-
-	table_metadata_t table = table_mapper_lookup(context->mapper, relid);
-	if (!table) {
-		log_error("relid %" PRIu32 " has no registered schema", relid);
-		return -1;
-	}
-
-    if (key_val) check(err, avro_value_to_json(key_val, 1, &key_json));
-    if (old_val) {
-        check(err, avro_value_to_json(old_val, 1, &old_json));
-        table_name = avro_schema_name(avro_value_get_schema(old_val));
-    }
-
-	get_cur_time(now);
-    if (key_json && old_json) {
-        printf("delete from %s: %s (was: %s)\n", table_name, key_json, old_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):delete from %s: %s (was: %s)\n",
-			now, rd_kafka_topic_name(table->topic), table_name, key_json, old_json);
-    } else if (old_json) {
-        printf("delete from %s: %s\n", table_name, old_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):delete from %s: %s\n",
-			now, rd_kafka_topic_name(table->topic), table_name, old_json);
-    } else if (key_json) {
-        printf("delete from relid %u: %s\n", relid, key_json);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):delete from relid %u: %s\n",
-			now, rd_kafka_topic_name(table->topic), relid, key_json);
-    } else {
-        printf("delete to relid %u (?)\n", relid);
-        fprintf(logfiles[index].fp, "[%s] topic(%s):delete to relid %u (?)\n",
-			now, rd_kafka_topic_name(table->topic), relid);
-    }
-
-    if (key_json) free(key_json);
-    if (old_json) free(old_json);
-    return err;
-}
-
-static int save_row_func(producer_context_t context, Oid relid) {
-	FILE* fp;
-    int i = 0;
-	char now[TIMELEN], logfile[256];
-
-	if(logfiles[0].fp)
-		return 0;
-	else{
-		table_metadata_t table = table_mapper_lookup(context->mapper, relid);
-		if (!table) {
-			log_error("relid %" PRIu32 " has no registered schema", relid);
-			return -1;
-		}
-
-		get_cur_time(now);
-		snprintf(logfile, sizeof(pidfile)-1, "/tmp/TTA_VNV_TEST.log");
-		if ((fp = fopen(logfile, "w")) == NULL){
-			return -1; 
-		}
-		logfiles[0].fp = fp;
-		logfiles[0].relid = relid;
-	}
-	return i;
-}
-
-//static int save_row_func(producer_context_t context, Oid relid) {
-//	FILE* fp;
-//    int i = 0, found = 0;
-//	char now[TIMELEN], logfile[256];
-//
-//	for(i = 0; i < MAXFILECNT; i++){
-//		if(logfiles[i].relid == relid){
-//			found = 1;
-//			break;
-//		}
-//	}
-//
-//	if(found){
-//		fp = logfiles[i].fp;
-//	}
-//	else{
-//		if(save_row > MAXFILECNT) return -1;
-//		table_metadata_t table = table_mapper_lookup(context->mapper, relid);
-//		if (!table) {
-//			log_error("relid %" PRIu32 " has no registered schema", relid);
-//			return -1;
-//		}
-//
-//		get_cur_time(now);
-//		snprintf(logfile, sizeof(pidfile)-1, "/tmp/%s_%s.log", rd_kafka_topic_name(table->topic), now);
-//		if ((fp = fopen(logfile, "w")) == NULL){
-//			return -1; 
-//		}
-//		for(i = 0; i < MAXFILECNT; i++){
-//			if(logfiles[i].fp == NULL){
-//				logfiles[i].fp = fp;
-//				logfiles[i].relid = relid;
-//				save_row++;
-//				break;
-//			}
-//		}
-//	}
-//	return i;
-//}
-#endif
 static int on_insert_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
     producer_context_t context = (producer_context_t) _context;
-#ifdef TTA_VNV
-	if(save_row){
-		print_insert_row(_context, wal_pos, relid,
-		key_bin, key_len, key_val,
-		new_bin, new_len, new_val, save_row_func(context, relid));
-	}
-#endif
     return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, new_bin, new_len);
 }
 
@@ -794,14 +547,6 @@ static int on_update_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *old_bin, size_t old_len, avro_value_t *old_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
     producer_context_t context = (producer_context_t) _context;
-#ifdef TTA_VNV
-	if(save_row){ //TTA
-		print_update_row(context, wal_pos, relid,
-        key_bin, key_len, key_val,
-        old_bin, old_len, old_val,
-        new_bin, new_len, new_val, save_row_func(context, relid));
-	}
-#endif
     return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, new_bin, new_len);
 }
 
@@ -810,16 +555,8 @@ static int on_delete_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *old_bin, size_t old_len, avro_value_t *old_val) {
     producer_context_t context = (producer_context_t) _context;
 
-#ifdef TTA_VNV
-    if (key_bin){
-		if(save_row){ //TTA
-		}
-        return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, NULL, 0);
-	}
-#else
 	if (key_bin)
 		return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, NULL, 0);
-#endif
     else
         return 0; // delete on unkeyed table --> can't do anything
 }
@@ -1141,14 +878,6 @@ void exit_nicely(producer_context_t context, int status) {
     curl_global_cleanup();
     rd_kafka_wait_destroyed(2000);
 	unlink(pidfile); /* k4m */
-#ifdef TTA_VNV
-	for(int i = 0; i < MAXFILECNT; i++){ //TTA
-		if(logfiles[i].fp != NULL){
-			fclose(logfiles[i].fp);
-			memset(logfiles, 0x00, sizeof(log_files_t));
-		}
-	}
-#endif
     exit(status);
 }
 
