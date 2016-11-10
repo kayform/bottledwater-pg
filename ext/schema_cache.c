@@ -45,7 +45,7 @@ schema_cache_t schema_cache_new(MemoryContext context) {
  * If an error occurred creating or updating the entry, returns a negative value. */
 int schema_cache_lookup(schema_cache_t cache, Relation rel, schema_cache_entry **entry_out) {
     Oid relid = RelationGetRelid(rel);
-    bool found_entry;
+    bool found_entry=false;
     int err;
     schema_cache_entry *entry = (schema_cache_entry *)
         hash_search(cache->entries, &relid, HASH_ENTER, &found_entry);
@@ -209,7 +209,7 @@ void tupdesc_debug_info(StringInfo msg, TupleDesc tupdesc) {
 
 /* Returns a palloc'ed string with information about a table schema, for debugging. */
 char *schema_debug_info(Relation rel, TupleDesc tupdesc) {
-    StringInfoData msg;
+    StringInfoData msg; msg.data = NULL;
     initStringInfo(&msg);
     appendStringInfo(&msg, "relation oid=%u name=%s ns=%s relkind=%c",
             RelationGetRelid(rel),

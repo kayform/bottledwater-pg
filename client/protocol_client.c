@@ -66,8 +66,8 @@ int parse_frame(frame_reader_t reader, uint64_t wal_pos, char *buf, int buflen) 
 
 
 int process_frame(avro_value_t *frame_val, frame_reader_t reader, uint64_t wal_pos) {
-    int err = 0, msg_type;
-    size_t num_messages;
+    int err = 0, msg_type=0;
+    size_t num_messages=0;
     avro_value_t msg_val, union_val, record_val;
 
     check_avro(err, reader, avro_value_get_by_index(frame_val, 0, &msg_val, NULL));
@@ -136,9 +136,9 @@ int process_frame_commit_txn(avro_value_t *record_val, frame_reader_t reader, ui
 }
 
 int process_frame_table_schema(avro_value_t *record_val, frame_reader_t reader, uint64_t wal_pos) {
-    int err = 0, key_schema_present;
+    int err = 0, key_schema_present=0;
     avro_value_t relid_val, key_schema_val, row_schema_val, branch_val;
-    int64_t relid;
+    int64_t relid=0;
     const char *key_schema_json = NULL, *row_schema_json;
     size_t key_schema_len = 1, row_schema_len;
     avro_schema_t key_schema = NULL, row_schema;
@@ -181,9 +181,9 @@ int process_frame_table_schema(avro_value_t *record_val, frame_reader_t reader, 
 }
 
 int process_frame_insert(avro_value_t *record_val, frame_reader_t reader, uint64_t wal_pos) {
-    int err = 0, key_present;
+    int err = 0, key_present=0;
     avro_value_t relid_val, key_val, new_val, branch_val;
-    int64_t relid;
+    int64_t relid=0;
     const void *key_bin = NULL, *new_bin = NULL;
     size_t key_len = 0, new_len = 0;
 
@@ -222,9 +222,9 @@ int process_frame_insert(avro_value_t *record_val, frame_reader_t reader, uint64
 }
 
 int process_frame_update(avro_value_t *record_val, frame_reader_t reader, uint64_t wal_pos) {
-    int err = 0, key_present, old_present;
+    int err = 0, key_present=0, old_present=0;
     avro_value_t relid_val, key_val, old_val, new_val, branch_val;
-    int64_t relid;
+    int64_t relid=0;
     const void *key_bin = NULL, *old_bin = NULL, *new_bin = NULL;
     size_t key_len = 0, old_len = 0, new_len = 0;
 
@@ -272,9 +272,9 @@ int process_frame_update(avro_value_t *record_val, frame_reader_t reader, uint64
 }
 
 int process_frame_delete(avro_value_t *record_val, frame_reader_t reader, uint64_t wal_pos) {
-    int err = 0, key_present, old_present;
+    int err = 0, key_present=0, old_present=0;
     avro_value_t relid_val, key_val, old_val, branch_val;
-    int64_t relid;
+    int64_t relid=0;
     const void *key_bin = NULL, *old_bin = NULL;
     size_t key_len = 0, old_len = 0;
 

@@ -12,7 +12,7 @@ void daemon_log(log_level level, const char *fmt, ...) {
 }
 
 void vdaemon_log(log_level level, const char *fmt, va_list args) {
-    const char *level_str;
+    const char *level_str=NULL;
     switch (level) {
         case LOG_LEVEL_DEBUG: level_str = "DEBUG"; break;
         case LOG_LEVEL_INFO: level_str = "INFO"; break;

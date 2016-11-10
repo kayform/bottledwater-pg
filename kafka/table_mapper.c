@@ -119,17 +119,17 @@ table_metadata_t table_mapper_update(table_mapper_t mapper, Oid relid,
     int err;
 
     err = table_metadata_update_topic(mapper, table, table_name);
-    if (err) goto error;
+    if (err) /*goto error;*/ { if (table) table->deleted = 1; return NULL;}
 
     err = table_metadata_update_schema(mapper, table, 1, key_schema_json, key_schema_len);
-    if (err) goto error;
+    if (err) /*goto error;*/ { if (table) table->deleted = 1; return NULL;}
 
     err = table_metadata_update_schema(mapper, table, 0, row_schema_json, row_schema_len);
-    if (err) goto error;
+    if (err) /*goto error;*/ { if (table) table->deleted = 1; return NULL;}
 
     return table;
 
-error:
+//error:
     /* Mark the table as deleted so we don't try to proceed with incomplete
      * information.
      *
@@ -142,8 +142,8 @@ error:
      * N.B. this means the record will *never* be freed!  So we should revisit
      * this if we anticipate having a large number of deleted records.
      */
-    if (table) table->deleted = 1;
-    return NULL;
+//    if (table) table->deleted = 1;
+//    return NULL;
 }
 
 /* Destroys the table mapper along with all stored metadata.  Will close any

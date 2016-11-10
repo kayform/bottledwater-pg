@@ -74,7 +74,7 @@ void db_client_set_error_policy(client_context_t context, const char *policy) {
  * initiates the consistent snapshot. */
 int db_client_start(client_context_t context) {
     int err = 0;
-    bool slot_exists;
+    bool slot_exists=false;
 
     check(err, client_connect(context));
     checkRepl(err, context, replication_stream_check(&context->repl));
@@ -312,23 +312,23 @@ int replication_slot_exists(client_context_t context, bool *exists) {
         client_error(context, "Could not check for existing replication slot: %s",
                 PQerrorMessage(context->sql_conn));
         err = EIO;
-        goto done;
+        PQclear(res); return err;
     }
 
     *exists = (PQntuples(res) > 0 && !PQgetisnull(res, 0, 0));
 
     if (*exists) {
-        uint32 h32, l32;
+        uint32 h32=0, l32=0;
         if (sscanf(PQgetvalue(res, 0, 0), "%X/%X", &h32, &l32) != 2) {
             client_error(context, "Could not parse restart LSN: \"%s\"", PQgetvalue(res, 0, 0));
             err = EIO;
-            goto done;
+            PQclear(res); return err;
         } else {
             context->repl.start_lsn = ((uint64) h32) << 32 | l32;
         }
     }
 
-done:
+//done:
     PQclear(res);
     return err;
 }
@@ -453,7 +453,7 @@ int update_repl_table_entry(client_context_t context) {
         client_error(context, "Could not find map table: %s",
                 PQerrorMessage(context->sql_conn));
         err = EIO;
-        goto done;
+        PQclear(res); return err;
 	}
 
     if ((PQntuples(res) > 0 && !PQgetisnull(res, 0, 0))) {
@@ -468,7 +468,7 @@ int update_repl_table_entry(client_context_t context) {
 		}
     }
 
-done:
+//done:
     PQclear(res);
     return err;
 }

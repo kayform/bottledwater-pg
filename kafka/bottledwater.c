@@ -143,23 +143,23 @@ char* topic_name_from_avro_schema(avro_schema_t schema);
 
 static int handle_error(producer_context_t context, int err, const char *fmt, ...) __attribute__ ((format (printf, 3, 4)));
 
-static int on_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid);
-static int on_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid);
-static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
+static int on_begin_txn(void *ctx, uint64_t wal_pos, uint32_t xid);
+static int on_commit_txn(void *ctx, uint64_t wal_pos, uint32_t xid);
+static int on_table_schema(void *ctx, uint64_t wal_pos, Oid relid,
         const char *key_schema_json, size_t key_schema_len, avro_schema_t key_schema,
         const char *row_schema_json, size_t row_schema_len, avro_schema_t row_schema);
-static int on_insert_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_insert_row(void *ctx, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val);
-static int on_update_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_update_row(void *ctx, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val);
-static int on_delete_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_delete_row(void *ctx, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val);
-static int on_keepalive(void *_context, uint64_t wal_pos);
-static int on_client_error(void *_context, int err, const char *message);
+static int on_keepalive(void *ctx, uint64_t wal_pos);
+static int on_client_error(void *ctx, int err, const char *message);
 int send_kafka_msg(producer_context_t context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len,
         const void *val_bin, size_t val_len);
@@ -400,7 +400,7 @@ char* topic_name_from_avro_schema(avro_schema_t schema) {
     const char namespace[] = "dummy";
 #endif
 
-    char topic_name[TABLE_NAME_BUFFER_LENGTH];
+    char topic_name[TABLE_NAME_BUFFER_LENGTH]; strncpy(topic_name, "topic", strlen(topic_name)-1); topic_name[strlen(topic_name)-1] = '\0';
     /* Strips the beginning part of the namespace to extract the Postgres schema name
      * and init topic_name with it */
     int matched = sscanf(namespace, GENERATED_SCHEMA_NAMESPACE ".%s", topic_name);
@@ -441,8 +441,8 @@ static int handle_error(producer_context_t context, int err, const char *fmt, ..
 }
 
 
-static int on_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
-    producer_context_t context = (producer_context_t) _context;
+static int on_begin_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
+    producer_context_t context = (producer_context_t) ctx;
     replication_stream_t stream = &context->client->repl;
 
     if (xid == 0) {
@@ -473,8 +473,8 @@ static int on_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
     return 0;
 }
 
-static int on_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
-    producer_context_t context = (producer_context_t) _context;
+static int on_commit_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
+    producer_context_t context = (producer_context_t) ctx;
     transaction_info *xact = &context->xact_list[context->xact_head];
 
     if (xid == 0) {
@@ -494,10 +494,10 @@ static int on_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
 }
 
 
-static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
+static int on_table_schema(void *ctx, uint64_t wal_pos, Oid relid,
         const char *key_schema_json, size_t key_schema_len, avro_schema_t key_schema,
         const char *row_schema_json, size_t row_schema_len, avro_schema_t row_schema) {
-    producer_context_t context = (producer_context_t) _context;
+    producer_context_t context = (producer_context_t) ctx;
 
     char *topic_name = topic_name_from_avro_schema(row_schema);
 
@@ -535,25 +535,25 @@ static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
     return 0;
 }
 
-static int on_insert_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_insert_row(void *ctx, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
-    producer_context_t context = (producer_context_t) _context;
+    producer_context_t context = (producer_context_t) ctx;
     return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, new_bin, new_len);
 }
 
-static int on_update_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_update_row(void *ctx, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
-    producer_context_t context = (producer_context_t) _context;
+    producer_context_t context = (producer_context_t) ctx;
     return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, new_bin, new_len);
 }
 
-static int on_delete_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_delete_row(void *ctx, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val) {
-    producer_context_t context = (producer_context_t) _context;
+    producer_context_t context = (producer_context_t) ctx;
 
 	if (key_bin)
 		return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, NULL, 0);
@@ -561,8 +561,8 @@ static int on_delete_row(void *_context, uint64_t wal_pos, Oid relid,
         return 0; // delete on unkeyed table --> can't do anything
 }
 
-static int on_keepalive(void *_context, uint64_t wal_pos) {
-    producer_context_t context = (producer_context_t) _context;
+static int on_keepalive(void *ctx, uint64_t wal_pos) {
+    producer_context_t context = (producer_context_t) ctx;
 
     if (xact_list_empty(context)) {
         return 0;
@@ -571,8 +571,8 @@ static int on_keepalive(void *_context, uint64_t wal_pos) {
     }
 }
 
-static int on_client_error(void *_context, int err, const char *message) {
-    producer_context_t context = (producer_context_t) _context;
+static int on_client_error(void *ctx, int err, const char *message) {
+    producer_context_t context = (producer_context_t) ctx;
     return handle_error(context, err, "Client error: %s", message);
 }
 

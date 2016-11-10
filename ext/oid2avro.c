@@ -33,7 +33,7 @@ avro_schema_t schema_for_oid(predef_schema *predef, Oid typid);
 avro_schema_t schema_for_numeric(predef_schema *predef);
 avro_schema_t schema_for_date(predef_schema *predef);
 avro_schema_t schema_for_time_tz(predef_schema *predef);
-avro_schema_t schema_for_timestamp(predef_schema *predef, bool with_tz);
+//avro_schema_t schema_for_timestamp(predef_schema *predef, bool with_tz);
 avro_schema_t schema_for_interval(predef_schema *predef);
 void schema_for_date_fields(avro_schema_t record_schema);
 void schema_for_time_fields(avro_schema_t record_schema);
@@ -41,8 +41,8 @@ avro_schema_t schema_for_special_times(predef_schema *predef, avro_schema_t reco
 
 int update_avro_with_datum(avro_value_t *output_val, Oid typid, Datum pg_datum);
 int update_avro_with_date(avro_value_t *union_val, DateADT date);
-int update_avro_with_time_tz(avro_value_t *record_val, TimeTzADT *time);
-int update_avro_with_timestamp(avro_value_t *union_val, bool with_tz, Timestamp timestamp);
+int update_avro_with_time_tz(avro_value_t *record_val, TimeTzADT *timevalue);
+//int update_avro_with_timestamp(avro_value_t *union_val, bool with_tz, Timestamp timestamp);
 int update_avro_with_interval(avro_value_t *record_val, Interval *interval);
 int update_avro_with_bytes(avro_value_t *output_val, bytea *bytes);
 int update_avro_with_char(avro_value_t *output_val, char c);
@@ -190,7 +190,7 @@ int tuple_to_avro_row(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tup
 
     for (int i = 0; i < tupdesc->natts; i++) {
         avro_value_t field_val;
-        bool isnull;
+        bool isnull=false;
         Datum datum;
 
         Form_pg_attribute attr = tupdesc->attrs[i];
@@ -227,7 +227,7 @@ int tuple_to_avro_key(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tup
     for (int field = 0; field < key_index->indkey.dim1; field++) {
         Form_pg_attribute attr;
         avro_value_t field_val;
-        bool isnull;
+        bool isnull=false;
         Datum datum;
 
         int attnum = key_index->indkey.values[field] - 1;
@@ -597,16 +597,16 @@ avro_schema_t schema_for_time_tz(predef_schema *predef) {
     return record_schema;
 }
 
-int update_avro_with_time_tz(avro_value_t *record_val, TimeTzADT *time) {
+int update_avro_with_time_tz(avro_value_t *record_val, TimeTzADT *timevalue) {
     int err = 0;
     avro_value_t micro_val, zone_val;
 
     check(err, avro_value_get_by_index(record_val, 0, &micro_val, NULL));
     check(err, avro_value_get_by_index(record_val, 1, &zone_val,  NULL));
-    check(err, avro_value_set_long(&micro_val, time->time));
+    check(err, avro_value_set_long(&micro_val, timevalue->time));
     /* Negate the timezone offset because PG internally uses negative values for locations
      * east of GMT, but ISO 8601 does it the other way round. */
-    check(err, avro_value_set_int(&zone_val, -time->zone));
+    check(err, avro_value_set_int(&zone_val, -timevalue->zone));
 
     return err;
 }
@@ -638,91 +638,91 @@ int update_avro_with_time_tz(avro_value_t *record_val, TimeTzADT *time) {
  * Clients can force UTC output by setting the environment variable PGTZ=UTC, or by
  * executing "SET SESSION TIME ZONE UTC;".
  */
-avro_schema_t schema_for_timestamp(predef_schema *predef, bool with_tz) {
-    avro_schema_t record_schema;
+//avro_schema_t schema_for_timestamp(predef_schema *predef, bool with_tz) {
+//    avro_schema_t record_schema;
+//
+//    if (with_tz && predef->datetime_tz_schema) {
+//        return schema_for_special_times(predef,
+//                avro_schema_link(predef->datetime_tz_schema));
+//    }
+//    if (!with_tz && predef->datetime_schema) {
+//        return schema_for_special_times(predef,
+//                avro_schema_link(predef->datetime_schema));
+//    }
+//
+//    record_schema = avro_schema_record(with_tz ? "DateTimeTZ" : "DateTime",
+//            PREDEFINED_SCHEMA_NAMESPACE);
+//    schema_for_date_fields(record_schema);
+//    schema_for_time_fields(record_schema);
+//
+//    if (with_tz) {
+//        avro_schema_t column_schema = avro_schema_int();
+//        avro_schema_record_field_append(record_schema, "zoneOffset", column_schema);
+//        avro_schema_decref(column_schema);
+//        predef->datetime_tz_schema = record_schema;
+//    } else {
+//        predef->datetime_schema = record_schema;
+//    }
+//
+//    return schema_for_special_times(predef, record_schema);
+//}
 
-    if (with_tz && predef->datetime_tz_schema) {
-        return schema_for_special_times(predef,
-                avro_schema_link(predef->datetime_tz_schema));
-    }
-    if (!with_tz && predef->datetime_schema) {
-        return schema_for_special_times(predef,
-                avro_schema_link(predef->datetime_schema));
-    }
-
-    record_schema = avro_schema_record(with_tz ? "DateTimeTZ" : "DateTime",
-            PREDEFINED_SCHEMA_NAMESPACE);
-    schema_for_date_fields(record_schema);
-    schema_for_time_fields(record_schema);
-
-    if (with_tz) {
-        avro_schema_t column_schema = avro_schema_int();
-        avro_schema_record_field_append(record_schema, "zoneOffset", column_schema);
-        avro_schema_decref(column_schema);
-        predef->datetime_tz_schema = record_schema;
-    } else {
-        predef->datetime_schema = record_schema;
-    }
-
-    return schema_for_special_times(predef, record_schema);
-}
-
-int update_avro_with_timestamp(avro_value_t *union_val, bool with_tz, Timestamp timestamp) {
-    int err = 0, tz_offset;
-    avro_value_t enum_val, record_val, year_val, month_val, day_val, hour_val,
-                 minute_val, second_val, micro_val, zone_val;
-    struct pg_tm decoded;
-    fsec_t fsec;
-
-    if (TIMESTAMP_NOT_FINITE(timestamp)) {
-        check(err, avro_value_set_branch(union_val, 2, &enum_val));
-        if (TIMESTAMP_IS_NOBEGIN(timestamp)) {
-            check(err, avro_value_set_enum(&enum_val, 1));
-        } else {
-            check(err, avro_value_set_enum(&enum_val, 0));
-        }
-        return err;
-    }
-
-    // Postgres timestamp is microseconds since 2000-01-01. You can convert it to the
-    // Unix epoch (1970-01-01) like this:
-    //    timestamp + (POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * USECS_PER_DAY
-    //
-    // To get a Unix timestamp (with second resolution rather than microsecond), further
-    // divide by 1e6.
-
-    err = timestamp2tm(timestamp, with_tz ? &tz_offset : NULL, &decoded, &fsec, NULL, NULL);
-    if (err) {
-        ereport(ERROR,
-                (errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
-                 errmsg("timestamp out of range")));
-        return 1;
-    }
-
-    check(err, avro_value_set_branch(union_val, 1, &record_val));
-    check(err, avro_value_get_by_index(&record_val, 0, &year_val,   NULL));
-    check(err, avro_value_get_by_index(&record_val, 1, &month_val,  NULL));
-    check(err, avro_value_get_by_index(&record_val, 2, &day_val,    NULL));
-    check(err, avro_value_get_by_index(&record_val, 3, &hour_val,   NULL));
-    check(err, avro_value_get_by_index(&record_val, 4, &minute_val, NULL));
-    check(err, avro_value_get_by_index(&record_val, 5, &second_val, NULL));
-    check(err, avro_value_get_by_index(&record_val, 6, &micro_val,  NULL));
-    check(err, avro_value_set_int(&year_val,   decoded.tm_year));
-    check(err, avro_value_set_int(&month_val,  decoded.tm_mon));
-    check(err, avro_value_set_int(&day_val,    decoded.tm_mday));
-    check(err, avro_value_set_int(&hour_val,   decoded.tm_hour));
-    check(err, avro_value_set_int(&minute_val, decoded.tm_min));
-    check(err, avro_value_set_int(&second_val, decoded.tm_sec));
-    check(err, avro_value_set_int(&micro_val,  fsec));
-
-    if (with_tz) {
-        check(err, avro_value_get_by_index(&record_val, 7, &zone_val, NULL));
-        /* Negate the timezone offset because PG internally uses negative values for
-         * locations east of GMT, but ISO 8601 does it the other way round. */
-        check(err, avro_value_set_int(&zone_val, -tz_offset));
-    }
-    return err;
-}
+//int update_avro_with_timestamp(avro_value_t *union_val, bool with_tz, Timestamp timestamp) {
+//    int err = 0, tz_offset;
+//    avro_value_t enum_val, record_val, year_val, month_val, day_val, hour_val,
+//                 minute_val, second_val, micro_val, zone_val;
+//    struct pg_tm decoded;
+//    fsec_t fsec;
+//
+//    if (TIMESTAMP_NOT_FINITE(timestamp)) {
+//        check(err, avro_value_set_branch(union_val, 2, &enum_val));
+//        if (TIMESTAMP_IS_NOBEGIN(timestamp)) {
+//            check(err, avro_value_set_enum(&enum_val, 1));
+//        } else {
+//            check(err, avro_value_set_enum(&enum_val, 0));
+//        }
+//        return err;
+//    }
+//
+//    // Postgres timestamp is microseconds since 2000-01-01. You can convert it to the
+//    // Unix epoch (1970-01-01) like this:
+//    //    timestamp + (POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * USECS_PER_DAY
+//    //
+//    // To get a Unix timestamp (with second resolution rather than microsecond), further
+//    // divide by 1e6.
+//
+//    err = timestamp2tm(timestamp, with_tz ? &tz_offset : NULL, &decoded, &fsec, NULL, NULL);
+//    if (err) {
+//        ereport(ERROR,
+//                (errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+//                 errmsg("timestamp out of range")));
+//        return 1;
+//    }
+//
+//    check(err, avro_value_set_branch(union_val, 1, &record_val));
+//    check(err, avro_value_get_by_index(&record_val, 0, &year_val,   NULL));
+//    check(err, avro_value_get_by_index(&record_val, 1, &month_val,  NULL));
+//    check(err, avro_value_get_by_index(&record_val, 2, &day_val,    NULL));
+//    check(err, avro_value_get_by_index(&record_val, 3, &hour_val,   NULL));
+//    check(err, avro_value_get_by_index(&record_val, 4, &minute_val, NULL));
+//    check(err, avro_value_get_by_index(&record_val, 5, &second_val, NULL));
+//    check(err, avro_value_get_by_index(&record_val, 6, &micro_val,  NULL));
+//    check(err, avro_value_set_int(&year_val,   decoded.tm_year));
+//    check(err, avro_value_set_int(&month_val,  decoded.tm_mon));
+//    check(err, avro_value_set_int(&day_val,    decoded.tm_mday));
+//    check(err, avro_value_set_int(&hour_val,   decoded.tm_hour));
+//    check(err, avro_value_set_int(&minute_val, decoded.tm_min));
+//    check(err, avro_value_set_int(&second_val, decoded.tm_sec));
+//    check(err, avro_value_set_int(&micro_val,  fsec));
+//
+//    if (with_tz) {
+//        check(err, avro_value_get_by_index(&record_val, 7, &zone_val, NULL));
+//        /* Negate the timezone offset because PG internally uses negative values for
+//         * locations east of GMT, but ISO 8601 does it the other way round. */
+//        check(err, avro_value_set_int(&zone_val, -tz_offset));
+//    }
+//    return err;
+//}
 
 avro_schema_t schema_for_interval(predef_schema *predef) {
     if (predef->interval_schema) {
@@ -776,7 +776,7 @@ int update_avro_with_char(avro_value_t *output_val, char c) {
 int update_avro_with_string(avro_value_t *output_val, Oid typid, Datum pg_datum) {
     int err = 0;
     Oid output_func;
-    bool is_varlena;
+    bool is_varlena = false;
     char *str;
 
     getTypeOutputInfo(typid, &output_func, &is_varlena);
