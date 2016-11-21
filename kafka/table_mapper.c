@@ -35,12 +35,12 @@ table_mapper_t table_mapper_new(
         rd_kafka_topic_conf_t *topic_conf,
         schema_registry_t registry,
         const char *topic_prefix) {
-    table_mapper_t mapper = malloc(sizeof(table_mapper));
+    table_mapper_t mapper = malloc(sizeof(table_mapper)); if(mapper == NULL) return NULL;
     memset(mapper, 0, sizeof(table_mapper));
 
     mapper->num_tables = 0;
     mapper->capacity = 16;
-    mapper->tables = malloc(mapper->capacity * sizeof(void*));
+    mapper->tables = malloc(mapper->capacity * sizeof(void*)); if(mapper == NULL){ free(mapper); return NULL;}
 
     mapper->kafka = kafka;
     mapper->topic_conf = topic_conf;
@@ -166,10 +166,10 @@ void table_mapper_free(table_mapper_t mapper) {
 table_metadata_t table_metadata_new(table_mapper_t mapper, Oid relid) {
     if (mapper->num_tables == mapper->capacity) {
         mapper->capacity *= 4;
-        mapper->tables = realloc(mapper->tables, mapper->capacity * sizeof(void*));
+        mapper->tables = realloc(mapper->tables, mapper->capacity * sizeof(void*)); if(mapper->tables == NULL) return NULL;
     }
 
-    table_metadata_t table = malloc(sizeof(table_metadata));
+    table_metadata_t table = malloc(sizeof(table_metadata)); if(table == NULL) return NULL;
     memset(table, 0, sizeof(table_metadata));
     mapper->tables[mapper->num_tables] = table;
     mapper->num_tables++;
@@ -213,7 +213,7 @@ int table_metadata_update_topic(table_mapper_t mapper, table_metadata_t table, c
         char prefixed_name[TABLE_MAPPER_MAX_TOPIC_LEN];
         int size = snprintf(prefixed_name, TABLE_MAPPER_MAX_TOPIC_LEN,
                 "%s%c%s",
-                mapper->topic_prefix, TABLE_MAPPER_TOPIC_PREFIX_DELIMITER, table_name);
+                mapper->topic_prefix, TABLE_MAPPER_TOPIC_PREFIX_DEL, table_name);
 
         if (size >= TABLE_MAPPER_MAX_TOPIC_LEN) {
             mapper_error(mapper, "prefixed topic name is too long (max %d bytes): prefix %s, table name %s",

@@ -42,7 +42,7 @@ int received_reload_signal;
  * db_client_start() is called, various fields in the struct need to be
  * initialized. */
 client_context_t db_client_new() {
-    client_context_t context = malloc(sizeof(client_context));
+    client_context_t context = malloc(sizeof(client_context)); if(context == NULL) return NULL;
     memset(context, 0, sizeof(client_context));
     return context;
 }
@@ -253,8 +253,8 @@ int client_connect(client_context_t context) {
         if (option->val != NULL && option->val[0] != '\0') optcount++;
     }
 
-    const char **keys = malloc((optcount + 1) * sizeof(char *));
-    const char **values = malloc((optcount + 1) * sizeof(char *));
+    const char **keys = malloc((optcount + 1) * sizeof(char *)); if(keys == NULL) return ENOMEM;
+    const char **values = malloc((optcount + 1) * sizeof(char *)); if(values == NULL) return ENOMEM;
     int i = 0;
 
     for (option = parsed_opts; option->keyword != NULL; option++) {

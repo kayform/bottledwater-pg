@@ -830,9 +830,9 @@ static char *make_avro_safe(const char *raw, bool is_namespace) {
      *
      * (To be precise, we never need to encode the null terminator byte, and
      * thus this always wastes at least three bytes.) */
-    char *encoded = malloc(4 * length);
-
-    char *pe = encoded;
+    char *pe = NULL;
+    char *encoded = malloc(4 * length); if(!encoded) return NULL; strcpy(encoded, "1");
+    pe = encoded;
     for (size_t index = 0; index < length; ++index) {
         const char c = raw[index];
         if (
