@@ -6,7 +6,7 @@
 #include <avro.h>
 
 /* 5 bytes prefix is added by schema_registry_encode_msg(). */
-#define SCHEMA_REGISTRY_MESSAGE_PREFIX_LEN 5
+#define SCHEMA_REGISTRY_MSG_PREFIX_LEN 5
 
 #define SCHEMA_REGISTRY_ERROR_LEN 512
 

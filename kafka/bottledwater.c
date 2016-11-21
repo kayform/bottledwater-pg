@@ -400,7 +400,7 @@ char* topic_name_from_avro_schema(avro_schema_t schema) {
     const char namespace[] = "dummy";
 #endif
 
-    char topic_name[TABLE_NAME_BUFFER_LENGTH]; strncpy(topic_name, "topic", strlen(topic_name)-1); topic_name[strlen(topic_name)-1] = '\0';
+    char topic_name[TABLE_NAME_BUFFER_LENGTH]; if(strlen("topic") < strlen(topic_name)) strcpy(topic_name, "topic");
     /* Strips the beginning part of the namespace to extract the Postgres schema name
      * and init topic_name with it */
     int matched = sscanf(namespace, GENERATED_SCHEMA_NAMESPACE ".%s", topic_name);
@@ -784,7 +784,7 @@ client_context_t init_client() {
 /* Initializes the producer context, which holds everything we need to know about
  * our connection to Kafka. */
 producer_context_t init_producer(client_context_t client) {
-    producer_context_t context = malloc(sizeof(producer_context));
+    producer_context_t context = malloc(sizeof(producer_context)); if(context == NULL) return NULL;
     memset(context, 0, sizeof(producer_context));
     client->repl.frame_reader->cb_context = context;
 
@@ -888,7 +888,7 @@ static void handle_shutdown_signal(int sig) {
 /* k4m: signal handler SIGUSR2 for reloading config */
 static void handle_reload_signal(int sig) {
     received_reload_signal = sig;
-    signal(SIGUSR2, handle_reload_signal);
+    signal(SIGQUIT, handle_reload_signal);
 }
 
 static int make_pidfile(producer_context_t context){
@@ -928,7 +928,7 @@ int main(int argc, char **argv) {
     curl_global_init(CURL_GLOBAL_ALL);
     signal(SIGINT, handle_shutdown_signal);
     signal(SIGTERM, handle_shutdown_signal);
-    signal(SIGUSR2, handle_reload_signal); /* k4m */
+    signal(SIGQUIT, handle_reload_signal); /* k4m */
 
     producer_context_t context = init_producer(init_client());
     parse_options(context, argc, argv);
