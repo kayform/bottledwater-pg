@@ -34,7 +34,7 @@ int snapshot_tuple(client_context_t context, PGresult *res, int row_number);
 
 /* k4m: make active table list */
 int client_sql_connect(client_context_t context);
-int update_repl_table_entry(client_context_t context); 
+int update_repl_table_entry(client_context_t context, client_context_t ctx);
 int received_reload_signal;
 /* k4m: make active table list */
 
@@ -114,6 +114,22 @@ int db_client_poll(client_context_t context) {
     int err = 0;
 
     if (context->sql_conn) {
+        /* k4m: make active table list
+         * Got tht signal from the server for updated replication table entry*/
+        if(received_reload_signal){
+            client_context_t client = db_client_new();
+            client->app_name = strdup(context->app_name);
+            client->conninfo = strdup(context->conninfo);
+            db_client_set_error_policy(client, PROTOCOL_ERROR_POLICY_EXIT);
+            client->allow_unkeyed = false;
+
+            check(err, client_sql_connect(client));
+            check(err, update_repl_table_entry(client, context));
+            client_sql_disconnect(client);
+            received_reload_signal = 0;
+        }
+        /* k4m: make active table list  */
+
         /* To make PQgetResult() non-blocking, check PQisBusy() first */
         if (PQisBusy(context->sql_conn)) {
             context->status = 0;
@@ -136,7 +152,7 @@ int db_client_poll(client_context_t context) {
 		if(received_reload_signal){
 			sleep(1);
 			check(err, client_sql_connect(context));
-			check(err, update_repl_table_entry(context));
+			check(err, update_repl_table_entry(context, context));
 			client_sql_disconnect(context);
 			received_reload_signal = 0;
 		}
@@ -444,7 +460,7 @@ int snapshot_tuple(client_context_t context, PGresult *res, int row_number) {
 /* k4m: make active table list
  * Get replication table entry from the postgresql server.
  */
-int update_repl_table_entry(client_context_t context) {
+int update_repl_table_entry(client_context_t context, client_context_t ctx) {
     int err = 0, i;
 	int64_t relid;
 
@@ -457,14 +473,14 @@ int update_repl_table_entry(client_context_t context) {
 	}
 
     if ((PQntuples(res) > 0 && !PQgetisnull(res, 0, 0))) {
-		context->repl.frame_reader->num_active_schemas = 0;
-		memset(&context->repl.frame_reader->active_schema_list[0], 0x00, sizeof(int64_t)*MAX_TABLE_CNT);
+		ctx->repl.frame_reader->num_active_schemas = 0;
+		memset(&ctx->repl.frame_reader->active_schema_list[0], 0x00, sizeof(int64_t)*MAX_TABLE_CNT);
 
 		for (i = 0; i < PQntuples(res); i++)
 		{
 			relid = atoll(PQgetvalue(res, i, 0));
-			context->repl.frame_reader->active_schema_list[i] = relid;
-			context->repl.frame_reader->num_active_schemas++;
+			ctx->repl.frame_reader->active_schema_list[i] = relid;
+			ctx->repl.frame_reader->num_active_schemas++;
 		}
     }
 
