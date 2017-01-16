@@ -1,7 +1,7 @@
 SOURCES=bottledwater.c json.c registry.c table_mapper.c logger.c
 EXECUTABLE=bottledwater
 STATICLIB=../client/libbottledwater.a
-POG_HOME=/postgresql
+POG_HOME?=/postgresql
 bindir=/bin
 
 

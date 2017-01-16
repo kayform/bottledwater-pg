@@ -112,9 +112,9 @@ int schema_cache_entry_update(schema_cache_t cache, schema_cache_entry *entry, R
     entry->row_tupdesc = CreateTupleDescCopyConstr(RelationGetDescr(rel));
     MemoryContextSwitchTo(oldctx);
 
-    err = schema_for_table_key(rel, &entry->key_schema);
+    err = schema_for_table_key(rel, &entry->key_schema, entry->white_columns);
     if (err) return err;
-    err = schema_for_table_row(rel, &entry->row_schema);
+    err = schema_for_table_row(rel, &entry->row_schema, entry->white_columns);
     if (err) return err;
     entry->row_iface = avro_generic_class_from_schema(entry->row_schema);
     if (entry->row_iface == NULL) return EINVAL;
@@ -167,9 +167,12 @@ void schema_cache_entry_decrefs(schema_cache_entry *entry) {
     if (entry->key_tupdesc) pfree(entry->key_tupdesc);
     if (entry->row_tupdesc) pfree(entry->row_tupdesc);
 
-    avro_value_decref(&entry->row_value);
-    avro_value_iface_decref(entry->row_iface);
-    avro_schema_decref(entry->row_schema);
+	if(entry->row_iface != NULL){
+		avro_value_decref(&entry->row_value);
+		avro_value_iface_decref(entry->row_iface);
+	}
+	if(entry->row_schema != NULL)
+		avro_schema_decref(entry->row_schema);
 
     if (entry->key_schema) {
         avro_value_decref(&entry->key_value);
@@ -177,7 +180,8 @@ void schema_cache_entry_decrefs(schema_cache_entry *entry) {
         avro_schema_decref(entry->key_schema);
     }
 
-    memset(entry, 0, sizeof(schema_cache_entry));
+//    memset(entry, 0, sizeof(schema_cache_entry));
+    memset(entry, 0, sizeof(schema_cache_entry)-sizeof(entry->white_columns));
 }
 
 /* Frees all the memory structures associated with a schema cache. */

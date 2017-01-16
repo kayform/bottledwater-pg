@@ -89,7 +89,7 @@ int update_frame_with_insert(avro_value_t *frame_val, schema_cache_t cache, Rela
 
     check(err, extract_tuple_key(entry, rel, tupdesc, newtuple, &key_bin));
     check(err, avro_value_reset(&entry->row_value));
-    check(err, tuple_to_avro_row(&entry->row_value, tupdesc, newtuple));
+    check(err, tuple_to_avro_row(&entry->row_value, tupdesc, newtuple, entry->white_columns));
     check(err, try_writing(&new_bin, &write_avro_binary, &entry->row_value));
     check(err, update_frame_with_insert_raw(frame_val, RelationGetRelid(rel), key_bin, new_bin));
 
@@ -117,13 +117,13 @@ int update_frame_with_update(avro_value_t *frame_val, schema_cache_t cache, Rela
     if (oldtuple) {
         check(err, extract_tuple_key(entry, rel, RelationGetDescr(rel), oldtuple, &old_key_bin));
         check(err, avro_value_reset(&entry->row_value));
-        check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), oldtuple));
+        check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), oldtuple, entry->white_columns));
         check(err, try_writing(&old_bin, &write_avro_binary, &entry->row_value));
     }
 
     check(err, extract_tuple_key(entry, rel, RelationGetDescr(rel), newtuple, &new_key_bin));
     check(err, avro_value_reset(&entry->row_value));
-    check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), newtuple));
+    check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), newtuple, entry->white_columns));
     check(err, try_writing(&new_bin, &write_avro_binary, &entry->row_value));
 
     if (old_key_bin != NULL && (VARSIZE(old_key_bin) != VARSIZE(new_key_bin) ||
@@ -159,7 +159,7 @@ int update_frame_with_delete(avro_value_t *frame_val, schema_cache_t cache, Rela
     if (oldtuple) {
         check(err, extract_tuple_key(entry, rel, RelationGetDescr(rel), oldtuple, &key_bin));
         check(err, avro_value_reset(&entry->row_value));
-        check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), oldtuple));
+        check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), oldtuple, entry->white_columns));
         check(err, try_writing(&old_bin, &write_avro_binary, &entry->row_value));
     }
 

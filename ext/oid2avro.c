@@ -97,7 +97,7 @@ Relation table_key_index(Relation rel) {
  *
  * Returns 0 if successful, nonzero if an error occurred generating the schema.
  * If the table is unkeyed, sets *schema_out to NULL and returns 0. */
-int schema_for_table_key(Relation rel, avro_schema_t *schema_out) {
+int schema_for_table_key(Relation rel, avro_schema_t *schema_out, char* wcolumns) {
     Relation index_rel;
     int err;
 
@@ -107,7 +107,7 @@ int schema_for_table_key(Relation rel, avro_schema_t *schema_out) {
         return 0;
     }
 
-    err = schema_for_table_row(index_rel, schema_out);
+    err = schema_for_table_row(index_rel, schema_out, wcolumns);
 
     relation_close(index_rel, AccessShareLock);
     return err;
@@ -119,7 +119,7 @@ int schema_for_table_key(Relation rel, avro_schema_t *schema_out) {
  *
  * Returns 0 if successful, nonzero if an error occurred generating the schema.
  * If the table is unkeyed, sets *schema_out to NULL and returns 0. */
-int schema_for_table_row(Relation rel, avro_schema_t *schema_out) {
+int schema_for_table_row(Relation rel, avro_schema_t *schema_out, char* wcolumns) {
     char *rel_namespace, *relname, *relname_avro_safe, *rel_namespace_avro_safe;
     char *attname_avro_safe;
     StringInfoData namespace;
@@ -127,6 +127,8 @@ int schema_for_table_row(Relation rel, avro_schema_t *schema_out) {
     TupleDesc tupdesc;
     predef_schema predef;
     int err = 0;
+	char *columns = NULL, *tofree = NULL;
+	char *tok = NULL, *del = ":";
 
     memset(&predef, 0, sizeof(predef_schema));
     initStringInfo(&namespace);
@@ -163,9 +165,22 @@ int schema_for_table_row(Relation rel, avro_schema_t *schema_out) {
     }
 
     for (int i = 0; i < tupdesc->natts; i++) {
+		bool found_columns = false;
         Form_pg_attribute attr = tupdesc->attrs[i];
         if (attr->attisdropped) continue; /* skip dropped columns */
 
+		if(wcolumns){
+			tofree = columns = pstrdup(wcolumns);
+			while((tok = strsep(&columns, del)) != NULL){
+				if(!strncmp(NameStr(attr->attname), tok, NAMEDATALEN)){
+					found_columns  = true;
+					break;
+				}
+			}
+			pfree(tofree);
+			if(!found_columns) continue; /* skip unmapped columns */
+		}
+		
         attname_avro_safe = make_avro_safe(NameStr(attr->attname), false);
         column_schema = schema_for_oid(&predef, attr->atttypid);
 
@@ -184,17 +199,32 @@ int schema_for_table_row(Relation rel, avro_schema_t *schema_out) {
 
 /* Translates a Postgres heap tuple (one row of a table) into the Avro schema generated
  * by schema_for_table_row(). */
-int tuple_to_avro_row(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tuple) {
+int tuple_to_avro_row(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tuple, char* wcolumns) {
     int err = 0, field = 0;
+	char *columns = NULL, *tofree = NULL;
+	char *tok = NULL, *del = ":";
     check(err, avro_value_reset(output_val));
 
     for (int i = 0; i < tupdesc->natts; i++) {
         avro_value_t field_val;
         bool isnull=false;
+		bool found_columns = false;
         Datum datum;
 
         Form_pg_attribute attr = tupdesc->attrs[i];
         if (attr->attisdropped) continue; /* skip dropped columns */
+		if(wcolumns){
+			tofree = columns = pstrdup(wcolumns);
+			while((tok = strsep(&columns, del)) != NULL){
+				if(!strncmp(NameStr(attr->attname), tok, NAMEDATALEN)){
+					found_columns  = true;
+					break;
+				}
+			}
+			pfree(tofree);
+			if(!found_columns) continue; /* skip unmapped columns */
+		}
+
 
         check(err, avro_value_get_by_index(output_val, field, &field_val, NULL));
 
