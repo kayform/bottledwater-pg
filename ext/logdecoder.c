@@ -33,8 +33,8 @@ void reset_frame(plugin_state *state);
 int write_frame(LogicalDecodingContext *ctx, plugin_state *state);
 Oid load_init_mapping_info(schema_cache_t cache);
 Oid get_master_reloid(void);
-//void add_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple);
-//void del_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple);
+void add_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple);
+void del_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple);
 
 
 void _PG_init() {
@@ -148,9 +148,9 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
                 elog(ERROR, "output_avro_change: insert action without a tuple");
             }
             newtuple = &change->data.tp.newtuple->tuple;
-//			if(master_reloid == RelationGetRelid(rel)){
-//				add_hash_map(state->schema_cache, rel, newtuple);
-//			}
+			if(master_reloid == RelationGetRelid(rel)){
+				add_hash_map(state->schema_cache, rel, newtuple);
+			}
             err = update_frame_with_insert(&state->frame_value, state->schema_cache, rel,
                     RelationGetDescr(rel), newtuple);
             break;
@@ -170,9 +170,9 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
             if (change->data.tp.oldtuple) {
                 oldtuple = &change->data.tp.oldtuple->tuple;
             }
-//			if(master_reloid == RelationGetRelid(rel)){
-//				del_hash_map(state->schema_cache, rel, oldtuple);
-//			}
+			if(master_reloid == RelationGetRelid(rel)){
+				del_hash_map(state->schema_cache, rel, oldtuple);
+			}
             err = update_frame_with_delete(&state->frame_value, state->schema_cache, rel, oldtuple);
             break;
 
@@ -242,18 +242,15 @@ Oid get_master_reloid(void) {
 
 Oid load_init_mapping_info(schema_cache_t cache) {
 	int ret = 0, proc = 0, i;
-	int32 colid = 0;
 	bool is_null = false, found_entry = false;
 	char *pcol_name;
     schema_cache_entry *entry = NULL;
-//	white_column* col;
-	NameData *col;
 
 	if ((ret = SPI_connect()) < 0) {
 		elog(ERROR, "bottledwater_export: SPI_connect returned %d", ret);
 	}
 
-	ret = SPI_exec("select reloid, ordinal_position, column_name from col_mapps order by reloid, ordinal_position", 0);
+	ret = SPI_exec("select reloid, column_name from col_mapps order by reloid, ordinal_position", 0);
     if (ret > 0 && SPI_tuptable != NULL && SPI_processed > 0){
 		Oid relid = 0,  prev_relid = 0;
 		TupleDesc tupdesc = SPI_tuptable->tupdesc;
@@ -263,8 +260,6 @@ Oid load_init_mapping_info(schema_cache_t cache) {
 		for(i = 0; i < proc; i++){
 			tuple = tuptable->vals[i];
 			relid = DatumGetObjectId(SPI_getbinval(tuple, tupdesc, 1, &is_null));
-			Assert(!isnull);
-			colid = DatumGetInt32(SPI_getbinval(tuple, tupdesc, 2, &is_null));
 			Assert(!isnull);
 			pcol_name = SPI_getvalue(tuple, tupdesc, 3);
 
@@ -278,7 +273,6 @@ Oid load_init_mapping_info(schema_cache_t cache) {
 				found_entry = false;
 			}
 			else{
-				col = palloc0(sizeof(NameData));
 				strcat(entry->white_columns, pcol_name);
 				strcat(entry->white_columns, ":");
 				elog(INFO, "[%d]==================%p %s", __LINE__, entry, entry->white_columns);
@@ -292,64 +286,35 @@ Oid load_init_mapping_info(schema_cache_t cache) {
 	return ret;
 }
 
-//void add_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple){
-//    white_cache_entry *entry;
-//	bool found_entry = false, found_cell = false, isnull = false;
-//	white_column* col;
-//	ListCell *cell;
-//
-//	TupleDesc tupdesc = RelationGetDescr(rel);
-//	Oid relid = DatumGetObjectId(heap_getattr(tuple, 1, tupdesc, &isnull));
-//
-//	entry = (white_cache_entry*) hash_search(cache->white_entries, &relid, HASH_ENTER, &found_entry);
-//	if(found_entry){
-//		foreach(cell, entry->white_columns) {
-//			col = (white_column*)lfirst(cell);
-//			if (!strncmp(TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), NameStr(col->col_name), NAMEDATALEN)){
-//				found_cell = true;
-//				col->ordinal_pos = DatumGetInt32(heap_getattr(tuple, 2, tupdesc, &isnull));
-//				break;
-//			}
-//		}
-//		if(!found_cell){
-//			col = palloc0(sizeof(white_column));
-//			col->ordinal_pos = DatumGetInt32(heap_getattr(tuple, 2, tupdesc, &isnull));
-//			strcpy(NameStr(col->col_name), TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)));
-//			entry->white_columns = lappend(entry->white_columns, col);
-//		}
-//	}
-//	else{
-//		col = palloc0(sizeof(white_column));
-//		col->ordinal_pos = DatumGetInt32(heap_getattr(tuple, 2, tupdesc, &isnull));
-//		strcpy(NameStr(col->col_name), TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)));
-//		entry->white_columns = list_make1(col);
-//	}
-//}
-//
-//void del_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple){
-//    white_cache_entry *entry;
-//	white_column* col;
-//	ListCell *cell;
-//	int count = 0;
-//	bool isnull = false;
-//	TupleDesc tupdesc = RelationGetDescr(rel);
-//	Oid relid = DatumGetObjectId(heap_getattr(tuple, 1, tupdesc, &isnull));
-//
-//	entry = (white_cache_entry*) hash_search(cache->white_entries, &relid, HASH_FIND, NULL);
-//	if(entry){
-//		foreach(cell, entry->white_columns) {
-//			count++;
-//			col = (white_column*)lfirst(cell);
-//			if (!strncmp(TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), NameStr(col->col_name), NAMEDATALEN)){
-//				entry->white_columns = list_delete_ptr(entry->white_columns, col);
-//				count--;
-//				break;
-//			}
-//		}
-//		if(count <= 0){
-//			list_free(entry->white_columns);
-//			entry->white_columns = NULL;
-//		}
-//	}
-//}
-//
+void add_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple){
+    schema_cache_entry *entry;
+	bool found_entry = false, isnull = false;
+	TupleDesc tupdesc = RelationGetDescr(rel);
+	Oid relid = DatumGetObjectId(heap_getattr(tuple, 1, tupdesc, &isnull));
+
+	entry = (schema_cache_entry*) hash_search(cache->entries, &relid, HASH_ENTER, &found_entry);
+	strncat(entry->white_columns,TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), NAMEDATALEN); 
+	strncat(entry->white_columns,":", 1); 
+}
+
+void del_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple){
+    schema_cache_entry *entry;
+	bool isnull = false;
+	char *columns = NULL, *tofree = NULL, *tok = NULL, *del = ":";
+	TupleDesc tupdesc = RelationGetDescr(rel);
+	Oid relid = DatumGetObjectId(heap_getattr(tuple, 1, tupdesc, &isnull));
+
+	entry = (schema_cache_entry*) hash_search(cache->entries, &relid, HASH_FIND, NULL);
+	if(entry){
+		tofree = columns = pstrdup(entry->white_columns);
+		memset(entry->white_columns, 0x00, sizeof(entry->white_columns));
+		while((tok = strsep(&columns, del)) != NULL){
+			if(strncmp(TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), tok, NAMEDATALEN)){
+				strncat(entry->white_columns, TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), NAMEDATALEN);
+				strncat(entry->white_columns,":", 1); 
+			}
+		}
+		pfree(tofree);
+	}
+}
+
