@@ -131,11 +131,6 @@ bool schema_cache_entry_changed(schema_cache_entry *entry, Relation rel) {
     Relation index_rel;
     bool changed = false;
 
-	if(entry->wchanged){
-		entry->wchanged = false;
-		return true;
-	}
-
     if (entry->relid != RelationGetRelid(rel)) return true;
     if (entry->ns_id != RelationGetNamespace(rel)) return true;
     if (strcmp(NameStr(entry->relname), RelationGetRelationName(rel)) != 0) return true;

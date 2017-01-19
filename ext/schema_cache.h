@@ -15,7 +15,6 @@ typedef struct {
     NameData            keyns_name;  /* Name of the namespace of the primary key index */
     TupleDesc           key_tupdesc; /* Postgres tuple descriptor for primary key or replica identity index */
     TupleDesc           row_tupdesc; /* Postgres tuple descriptor for a row of this table */
-	bool				wchanged;
     avro_schema_t       key_schema;  /* Avro schema for the table's primary key or replica identity */
     avro_schema_t       row_schema;  /* Avro schema for one row of the table */
     avro_value_iface_t *key_iface;   /* Avro generic interface for creating key values */

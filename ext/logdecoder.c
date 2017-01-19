@@ -32,9 +32,6 @@ static Oid master_reloid = 0;
 void reset_frame(plugin_state *state);
 int write_frame(LogicalDecodingContext *ctx, plugin_state *state);
 Oid get_master_reloid(void);
-void add_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple);
-void del_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple);
-
 
 void _PG_init() {
 }
@@ -151,10 +148,6 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
                 elog(ERROR, "output_avro_change: insert action without a tuple");
             }
             newtuple = &change->data.tp.newtuple->tuple;
-			if(master_reloid == RelationGetRelid(rel)){
-				add_hash_map(state->schema_cache, rel, newtuple);
-				break;
-			}
             err = update_frame_with_insert(&state->frame_value, state->schema_cache, rel,
                     RelationGetDescr(rel), newtuple);
             break;
@@ -174,11 +167,6 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
             if (change->data.tp.oldtuple) {
                 oldtuple = &change->data.tp.oldtuple->tuple;
             }
-
-			if(master_reloid == RelationGetRelid(rel)){
-				del_hash_map(state->schema_cache, rel, oldtuple);
-				break;
-			}
             err = update_frame_with_delete(&state->frame_value, state->schema_cache, rel, oldtuple);
             break;
 
@@ -245,43 +233,4 @@ Oid get_master_reloid(void) {
         ret = 0;
     }
 	return ret;
-}
-
-void add_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple){
-    schema_cache_entry *entry;
-	bool found_entry = false, isnull = false;
-	TupleDesc tupdesc = RelationGetDescr(rel);
-	Oid relid = DatumGetObjectId(heap_getattr(tuple, 1, tupdesc, &isnull));
-
-	entry = (schema_cache_entry*) hash_search(cache->entries, &relid, HASH_ENTER, &found_entry);
-	strncat(entry->white_columns,TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), NAMEDATALEN); 
-	strncat(entry->white_columns,":", 1); 
-	entry->wchanged = true;
-}
-
-void del_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple){
-    schema_cache_entry *entry;
-	bool isnull = false;
-	char *columns = NULL, *tofree = NULL, *tok = NULL, *del = ":";
-	int col_index = 0, i = 1;
-	TupleDesc tupdesc = RelationGetDescr(rel);
-	Oid relid = DatumGetObjectId(heap_getattr(tuple, 1, tupdesc, &isnull));
-	col_index = DatumGetInt32(heap_getattr(tuple, 2, tupdesc, &isnull));
-
-elog(INFO, "[%s:%d]===============[%d][%d]", __func__, __LINE__, relid, col_index);
-
-	entry = (schema_cache_entry*) hash_search(cache->entries, &relid, HASH_FIND, NULL);
-	if(entry){
-		tofree = columns = pstrdup(entry->white_columns);
-		memset(entry->white_columns, 0x00, sizeof(entry->white_columns));
-		while((tok = strsep(&columns, del)) != NULL){
-			if(strlen(tok) && col_index != i++){
-				strncat(entry->white_columns, tok, NAMEDATALEN);
-				strncat(entry->white_columns,":", 1); 
-			}
-		}
-		pfree(tofree);
-	}
-elog(INFO, "[%s:%d]===============[%s]", __func__, __LINE__, entry->white_columns);
-	entry->wchanged = true;
 }
