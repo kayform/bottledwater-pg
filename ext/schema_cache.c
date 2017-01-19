@@ -68,14 +68,7 @@ int schema_cache_lookup(schema_cache_t cache, Relation rel, schema_cache_entry *
             return 1;
         }
     } else {
-        /* Schema not previously seen -- populate a new cache entry */
-        err = schema_cache_entry_update(cache, entry, rel);
-        if (err) {
-            *entry_out = NULL;
-            return -2;
-        }
-        *entry_out = entry;
-        return 2;
+		return -3;
     }
 }
 
@@ -137,6 +130,11 @@ int schema_cache_entry_update(schema_cache_t cache, schema_cache_entry *entry, R
 bool schema_cache_entry_changed(schema_cache_entry *entry, Relation rel) {
     Relation index_rel;
     bool changed = false;
+
+	if(entry->wchanged){
+		entry->wchanged = false;
+		return true;
+	}
 
     if (entry->relid != RelationGetRelid(rel)) return true;
     if (entry->ns_id != RelationGetNamespace(rel)) return true;

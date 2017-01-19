@@ -144,6 +144,7 @@ Datum bottledwater_export(PG_FUNCTION_ARGS) {
         state->error_policy = parse_error_policy(TextDatumGetCString(PG_GETARG_TEXT_P(2)));
 
         get_table_list(state, table_pattern, allow_unkeyed);
+		load_init_mapping_info(state->schema_cache);
         if (state->num_tables > 0) open_next_table(state);
     }
 
@@ -220,6 +221,9 @@ void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed
 
             // Join with pg_class again to get the name of the index
             "LEFT JOIN pg_catalog.pg_class ic ON i.indexrelid = ic.oid "
+
+            // Join with tbl_mapps to get mapped table (by bwc API)
+			"JOIN (SELECT reloid FROM col_mapps GROUP BY reloid) cbm ON c.oid = cbm.reloid "
 
             // Select only ordinary tables ('r' == RELKIND_RELATION) matching the required name pattern
             "WHERE c.relkind = 'r' AND c.relname LIKE $1 AND "

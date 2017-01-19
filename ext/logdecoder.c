@@ -31,7 +31,6 @@ typedef struct {
 static Oid master_reloid = 0;
 void reset_frame(plugin_state *state);
 int write_frame(LogicalDecodingContext *ctx, plugin_state *state);
-Oid load_init_mapping_info(schema_cache_t cache);
 Oid get_master_reloid(void);
 void add_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple);
 void del_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple);
@@ -138,8 +137,12 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
     reset_frame(state);
 
 	if(master_reloid == 0){
+		if ((err = SPI_connect()) < 0) {
+			elog(ERROR, "bottledwater_export: SPI_connect returned %d", err);
+		}
 		master_reloid = get_master_reloid();
 		load_init_mapping_info(state->schema_cache);
+		SPI_finish();
 	}
 
     switch (change->action) {
@@ -150,6 +153,7 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
             newtuple = &change->data.tp.newtuple->tuple;
 			if(master_reloid == RelationGetRelid(rel)){
 				add_hash_map(state->schema_cache, rel, newtuple);
+				break;
 			}
             err = update_frame_with_insert(&state->frame_value, state->schema_cache, rel,
                     RelationGetDescr(rel), newtuple);
@@ -170,8 +174,10 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
             if (change->data.tp.oldtuple) {
                 oldtuple = &change->data.tp.oldtuple->tuple;
             }
+
 			if(master_reloid == RelationGetRelid(rel)){
 				del_hash_map(state->schema_cache, rel, oldtuple);
+				break;
 			}
             err = update_frame_with_delete(&state->frame_value, state->schema_cache, rel, oldtuple);
             break;
@@ -180,7 +186,12 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
             elog(ERROR, "output_avro_change: unknown change action %d", change->action);
     }
 
-    if (err && err != 129) {
+    if (err == 129) {
+        elog(INFO, "Skip table: %s", schema_debug_info(rel, NULL));
+		MemoryContextSwitchTo(oldctx);
+		MemoryContextReset(state->memctx);
+		return ;
+	} else if (err) {
         elog(INFO, "Row conversion failed: %s", schema_debug_info(rel, NULL));
         error_policy_handle(state->error_policy, "output_avro_change: row conversion failed", avro_strerror());
         /* if handling the error didn't exit early, it should be safe to fall
@@ -188,6 +199,7 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
          * failed (so potentially it'll be an empty frame)
          */
     }
+
     if (write_frame(ctx, state)) {
         error_policy_handle(state->error_policy, "output_avro_change: writing Avro binary failed", avro_strerror());
     }
@@ -219,10 +231,6 @@ int write_frame(LogicalDecodingContext *ctx, plugin_state *state) {
 Oid get_master_reloid(void) {
 	Oid ret;
 	bool is_null = false;
-	if ((ret = SPI_connect()) < 0) {
-		elog(ERROR, "bottledwater_export: SPI_connect returned %d", ret);
-	}
-
 	ret = SPI_exec("select oid from pg_class where relname = 'col_mapps'", 1);
     if (ret > 0 && SPI_tuptable != NULL && SPI_processed > 0){
 		if(SPI_processed > 0){
@@ -236,53 +244,6 @@ Oid get_master_reloid(void) {
     else {
         ret = 0;
     }
-	SPI_finish();
-	return ret;
-}
-
-Oid load_init_mapping_info(schema_cache_t cache) {
-	int ret = 0, proc = 0, i;
-	bool is_null = false, found_entry = false;
-	char *pcol_name;
-    schema_cache_entry *entry = NULL;
-
-	if ((ret = SPI_connect()) < 0) {
-		elog(ERROR, "bottledwater_export: SPI_connect returned %d", ret);
-	}
-
-	ret = SPI_exec("select reloid, column_name from col_mapps order by reloid, ordinal_position", 0);
-    if (ret > 0 && SPI_tuptable != NULL && SPI_processed > 0){
-		Oid relid = 0,  prev_relid = 0;
-		TupleDesc tupdesc = SPI_tuptable->tupdesc;
-		SPITupleTable *tuptable = SPI_tuptable;
-		HeapTuple tuple = NULL;
-		proc = SPI_processed;
-		for(i = 0; i < proc; i++){
-			tuple = tuptable->vals[i];
-			relid = DatumGetObjectId(SPI_getbinval(tuple, tupdesc, 1, &is_null));
-			Assert(!isnull);
-			pcol_name = SPI_getvalue(tuple, tupdesc, 3);
-
-			if(relid != prev_relid){
-				entry = (schema_cache_entry*)
-					hash_search(cache->entries, &relid, HASH_ENTER, &found_entry);
-				strcat(entry->white_columns, pcol_name);
-				strcat(entry->white_columns, ":");
-				prev_relid = relid;
-				elog(INFO, "[%d]==================%p %s", __LINE__, entry, entry->white_columns);
-				found_entry = false;
-			}
-			else{
-				strcat(entry->white_columns, pcol_name);
-				strcat(entry->white_columns, ":");
-				elog(INFO, "[%d]==================%p %s", __LINE__, entry, entry->white_columns);
-			}
-		}
-    }
-    else {
-        ret = -1;
-    }
-	SPI_finish();
 	return ret;
 }
 
@@ -295,26 +256,32 @@ void add_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple){
 	entry = (schema_cache_entry*) hash_search(cache->entries, &relid, HASH_ENTER, &found_entry);
 	strncat(entry->white_columns,TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), NAMEDATALEN); 
 	strncat(entry->white_columns,":", 1); 
+	entry->wchanged = true;
 }
 
 void del_hash_map(schema_cache_t cache, Relation rel, HeapTuple tuple){
     schema_cache_entry *entry;
 	bool isnull = false;
 	char *columns = NULL, *tofree = NULL, *tok = NULL, *del = ":";
+	int col_index = 0, i = 1;
 	TupleDesc tupdesc = RelationGetDescr(rel);
 	Oid relid = DatumGetObjectId(heap_getattr(tuple, 1, tupdesc, &isnull));
+	col_index = DatumGetInt32(heap_getattr(tuple, 2, tupdesc, &isnull));
+
+elog(INFO, "[%s:%d]===============[%d][%d]", __func__, __LINE__, relid, col_index);
 
 	entry = (schema_cache_entry*) hash_search(cache->entries, &relid, HASH_FIND, NULL);
 	if(entry){
 		tofree = columns = pstrdup(entry->white_columns);
 		memset(entry->white_columns, 0x00, sizeof(entry->white_columns));
 		while((tok = strsep(&columns, del)) != NULL){
-			if(strncmp(TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), tok, NAMEDATALEN)){
-				strncat(entry->white_columns, TextDatumGetCString(heap_getattr(tuple, 3, tupdesc, &isnull)), NAMEDATALEN);
+			if(strlen(tok) && col_index != i++){
+				strncat(entry->white_columns, tok, NAMEDATALEN);
 				strncat(entry->white_columns,":", 1); 
 			}
 		}
 		pfree(tofree);
 	}
+elog(INFO, "[%s:%d]===============[%s]", __func__, __LINE__, entry->white_columns);
+	entry->wchanged = true;
 }
-
