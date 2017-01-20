@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
-#include <unistd.h> /* k4m */
 
 #include <internal/pqexpbuffer.h>
 
@@ -32,17 +31,12 @@ int snapshot_start(client_context_t context);
 int snapshot_poll(client_context_t context);
 int snapshot_tuple(client_context_t context, PGresult *res, int row_number);
 
-/* k4m: make active table list */
-int client_sql_connect(client_context_t context);
-int update_repl_table_entry(client_context_t context, client_context_t ctx);
-int received_reload_signal;
-/* k4m: make active table list */
 
 /* Allocates a client_context struct. After this is done and before
  * db_client_start() is called, various fields in the struct need to be
  * initialized. */
 client_context_t db_client_new() {
-    client_context_t context = malloc(sizeof(client_context)); if(context == NULL) return NULL;
+    client_context_t context = malloc(sizeof(client_context));
     memset(context, 0, sizeof(client_context));
     return context;
 }
@@ -74,7 +68,7 @@ void db_client_set_error_policy(client_context_t context, const char *policy) {
  * initiates the consistent snapshot. */
 int db_client_start(client_context_t context) {
     int err = 0;
-    bool slot_exists=false;
+    bool slot_exists;
 
     check(err, client_connect(context));
     checkRepl(err, context, replication_stream_check(&context->repl));
@@ -114,22 +108,6 @@ int db_client_poll(client_context_t context) {
     int err = 0;
 
     if (context->sql_conn) {
-        /* k4m: make active table list
-         * Got tht signal from the server for updated replication table entry*/
-        if(received_reload_signal){
-            client_context_t client = db_client_new();
-            client->app_name = strdup(context->app_name);
-            client->conninfo = strdup(context->conninfo);
-            db_client_set_error_policy(client, PROTOCOL_ERROR_POLICY_EXIT);
-            client->allow_unkeyed = false;
-
-            check(err, client_sql_connect(client));
-            check(err, update_repl_table_entry(client, context));
-            client_sql_disconnect(client);
-            received_reload_signal = 0;
-        }
-        /* k4m: make active table list  */
-
         /* To make PQgetResult() non-blocking, check PQisBusy() first */
         if (PQisBusy(context->sql_conn)) {
             context->status = 0;
@@ -146,18 +124,6 @@ int db_client_poll(client_context_t context) {
         return err;
 
     } else {
-
-		/* k4m: make active table list 
-         * Got tht signal from the server for updated replication table entry*/
-		if(received_reload_signal){
-			sleep(1);
-			check(err, client_sql_connect(context));
-			check(err, update_repl_table_entry(context, context));
-			client_sql_disconnect(context);
-			received_reload_signal = 0;
-		}
-		/* k4m: make active table list  */
-
         checkRepl(err, context, replication_stream_poll(&context->repl));
         context->status = context->repl.status;
         return err;
@@ -269,8 +235,8 @@ int client_connect(client_context_t context) {
         if (option->val != NULL && option->val[0] != '\0') optcount++;
     }
 
-    const char **keys = malloc((optcount + 1) * sizeof(char *)); if(keys == NULL) return ENOMEM;
-    const char **values = malloc((optcount + 1) * sizeof(char *)); if(values == NULL) return ENOMEM;
+    const char **keys = malloc((optcount + 1) * sizeof(char *));
+    const char **values = malloc((optcount + 1) * sizeof(char *));
     int i = 0;
 
     for (option = parsed_opts; option->keyword != NULL; option++) {
@@ -328,23 +294,23 @@ int replication_slot_exists(client_context_t context, bool *exists) {
         client_error(context, "Could not check for existing replication slot: %s",
                 PQerrorMessage(context->sql_conn));
         err = EIO;
-        PQclear(res); return err;
+        goto done;
     }
 
     *exists = (PQntuples(res) > 0 && !PQgetisnull(res, 0, 0));
 
     if (*exists) {
-        uint32 h32=0, l32=0;
+        uint32 h32, l32;
         if (sscanf(PQgetvalue(res, 0, 0), "%X/%X", &h32, &l32) != 2) {
             client_error(context, "Could not parse restart LSN: \"%s\"", PQgetvalue(res, 0, 0));
             err = EIO;
-            PQclear(res); return err;
+            goto done;
         } else {
             context->repl.start_lsn = ((uint64) h32) << 32 | l32;
         }
     }
 
-//done:
+done:
     PQclear(res);
     return err;
 }
@@ -453,61 +419,6 @@ int snapshot_tuple(client_context_t context, PGresult *res, int row_number) {
             PQgetlength(res, row_number, 0));
     if (err) {
         client_error(context, "Error parsing frame data: %s", context->repl.frame_reader->error);
-    }
-    return err;
-}
-
-/* k4m: make active table list
- * Get replication table entry from the postgresql server.
- */
-int update_repl_table_entry(client_context_t context, client_context_t ctx) {
-    int err = 0, i;
-	int64_t relid;
-
-    PGresult *res = PQexec(context->sql_conn, "SELECT reloid, table_name from tbl_mapps ORDER BY reloid");
-    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-        client_error(context, "Could not find map table: %s",
-                PQerrorMessage(context->sql_conn));
-        err = EIO;
-        PQclear(res); return err;
-	}
-
-    if ((PQntuples(res) > 0 && !PQgetisnull(res, 0, 0))) {
-		ctx->repl.frame_reader->num_active_schemas = 0;
-		memset(&ctx->repl.frame_reader->active_schema_list[0], 0x00, sizeof(int64_t)*MAX_TABLE_CNT);
-
-		for (i = 0; i < PQntuples(res); i++)
-		{
-			relid = atoll(PQgetvalue(res, i, 0));
-			ctx->repl.frame_reader->active_schema_list[i] = relid;
-			ctx->repl.frame_reader->num_active_schemas++;
-		}
-    }
-
-//done:
-    PQclear(res);
-    return err;
-}
-/* k4m: make active table list */
-
-/* Establishes one network connections to a Postgres server one for SQL
- * for a short time, and update replication table entry */
-
-int client_sql_connect(client_context_t context) {
-	int err = 0;
-    if (!context->conninfo || context->conninfo[0] == '\0') {
-        client_error(context, "conninfo must be set in client context");
-        return EINVAL;
-    }
-    if (!context->app_name || context->app_name[0] == '\0') {
-        client_error(context, "app_name must be set in client context");
-        return EINVAL;
-    }
-
-    context->sql_conn = PQconnectdb(context->conninfo);
-    if (PQstatus(context->sql_conn) != CONNECTION_OK) {
-        client_error(context, "Connection to database failed: %s", PQerrorMessage(context->sql_conn));
-        return EIO;
     }
     return err;
 }

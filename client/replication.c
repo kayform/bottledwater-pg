@@ -59,24 +59,24 @@ int replication_slot_create(replication_stream_t stream) {
     PGresult *res = PQexec(stream->conn, query->data);
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
         repl_error(stream, "Command failed: %s: %s", query->data, PQerrorMessage(stream->conn));
-        destroyPQExpBuffer(query); PQclear(res); return EIO;
+        goto error;
     }
 
     if (PQntuples(res) != 1 || PQnfields(res) != 4) {
         repl_error(stream, "Unexpected CREATE_REPLICATION_SLOT result (%d rows, %d fields)",
                 PQntuples(res), PQnfields(res));
-        destroyPQExpBuffer(query); PQclear(res); return EIO;
+        goto error;
     }
 
     if (PQgetisnull(res, 0, 1) || PQgetisnull(res, 0, 2)) {
         repl_error(stream, "Unexpected null value in CREATE_REPLICATION_SLOT response");
-        destroyPQExpBuffer(query); PQclear(res); return EIO;
+        goto error;
     }
 
-    uint32 h32=0, l32=0;
+    uint32 h32, l32;
     if (sscanf(PQgetvalue(res, 0, 1), "%X/%X", &h32, &l32) != 2) {
         repl_error(stream, "Could not parse LSN: \"%s\"", PQgetvalue(res, 0, 1));
-        destroyPQExpBuffer(query); PQclear(res); return EIO;
+        goto error;
     }
 
     stream->start_lsn = ((uint64) h32) << 32 | l32;
@@ -86,10 +86,10 @@ int replication_slot_create(replication_stream_t stream) {
     PQclear(res);
     return 0;
 
-//error:
-//    destroyPQExpBuffer(query);
-//    PQclear(res);
-//    return EIO;
+error:
+    destroyPQExpBuffer(query);
+    PQclear(res);
+    return EIO;
 }
 
 
@@ -380,7 +380,7 @@ void repl_error(replication_stream_t stream, char *fmt, ...) {
 /* Returns the current date and time (according to the local system clock) in the
  * representation used by Postgres: microseconds since midnight on 2000-01-01. */
 int64 current_time() {
-    int64 timestamp = 0;
+    int64 timestamp;
     struct timeval tv;
 
     gettimeofday(&tv, NULL);

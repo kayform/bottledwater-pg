@@ -126,7 +126,6 @@ typedef msg_envelope *msg_envelope_t;
 
 static char *progname;
 static int received_shutdown_signal = 0;
-extern int received_reload_signal;/* k4m : reload table list flag */
 static char pidfile[MAXPGPATH];	/* k4m : pid file */
 
 void usage(int exit_status);
@@ -143,23 +142,23 @@ char* topic_name_from_avro_schema(avro_schema_t schema);
 
 static int handle_error(producer_context_t context, int err, const char *fmt, ...) __attribute__ ((format (printf, 3, 4)));
 
-static int on_begin_txn(void *ctx, uint64_t wal_pos, uint32_t xid);
-static int on_commit_txn(void *ctx, uint64_t wal_pos, uint32_t xid);
-static int on_table_schema(void *ctx, uint64_t wal_pos, Oid relid,
+static int on_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid);
+static int on_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid);
+static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
         const char *key_schema_json, size_t key_schema_len, avro_schema_t key_schema,
         const char *row_schema_json, size_t row_schema_len, avro_schema_t row_schema);
-static int on_insert_row(void *ctx, uint64_t wal_pos, Oid relid,
+static int on_insert_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val);
-static int on_update_row(void *ctx, uint64_t wal_pos, Oid relid,
+static int on_update_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val);
-static int on_delete_row(void *ctx, uint64_t wal_pos, Oid relid,
+static int on_delete_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val);
-static int on_keepalive(void *ctx, uint64_t wal_pos);
-static int on_client_error(void *ctx, int err, const char *message);
+static int on_keepalive(void *_context, uint64_t wal_pos);
+static int on_client_error(void *_context, int err, const char *message);
 int send_kafka_msg(producer_context_t context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len,
         const void *val_bin, size_t val_len);
@@ -400,7 +399,7 @@ char* topic_name_from_avro_schema(avro_schema_t schema) {
     const char namespace[] = "dummy";
 #endif
 
-    char topic_name[TABLE_NAME_BUFFER_LENGTH]; if(strlen("topic") < strlen(topic_name)) strcpy(topic_name, "topic");
+    char topic_name[TABLE_NAME_BUFFER_LENGTH];
     /* Strips the beginning part of the namespace to extract the Postgres schema name
      * and init topic_name with it */
     int matched = sscanf(namespace, GENERATED_SCHEMA_NAMESPACE ".%s", topic_name);
@@ -441,8 +440,8 @@ static int handle_error(producer_context_t context, int err, const char *fmt, ..
 }
 
 
-static int on_begin_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
-    producer_context_t context = (producer_context_t) ctx;
+static int on_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
+    producer_context_t context = (producer_context_t) _context;
     replication_stream_t stream = &context->client->repl;
 
     if (xid == 0) {
@@ -473,8 +472,8 @@ static int on_begin_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
     return 0;
 }
 
-static int on_commit_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
-    producer_context_t context = (producer_context_t) ctx;
+static int on_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
+    producer_context_t context = (producer_context_t) _context;
     transaction_info *xact = &context->xact_list[context->xact_head];
 
     if (xid == 0) {
@@ -494,28 +493,12 @@ static int on_commit_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
 }
 
 
-static int on_table_schema(void *ctx, uint64_t wal_pos, Oid relid,
+static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
         const char *key_schema_json, size_t key_schema_len, avro_schema_t key_schema,
         const char *row_schema_json, size_t row_schema_len, avro_schema_t row_schema) {
-    producer_context_t context = (producer_context_t) ctx;
+    producer_context_t context = (producer_context_t) _context;
 
     char *topic_name = topic_name_from_avro_schema(row_schema);
-
-	/* k4m: send only active schema to kafka */
-#define MAP_TABLE "tbl_mapps"
-#define MAP_HIST_TABLE "tbl_mapps_hist"
-#define CONN_TABLE "kafka_con_config"
-#define MAP_TABLE_LEN strlen(MAP_TABLE)
-#define MAP_HIST_TABLE_LEN strlen(MAP_HIST_TABLE)
-#define CONN_TABLE_LEN strlen(CONN_TABLE)
-
-	if(topic_name)
-		if((strlen(topic_name) == MAP_TABLE_LEN && !strncmp(MAP_TABLE, topic_name, MAP_TABLE_LEN))
-		||(strlen(topic_name) == MAP_TABLE_LEN && !strncmp(CONN_TABLE, topic_name, CONN_TABLE_LEN))
-		||(strlen(topic_name) == CONN_TABLE_LEN && !strncmp(CONN_TABLE, topic_name, CONN_TABLE_LEN))){
-			free(topic_name);
-			return 0;
-		}
 
     table_metadata_t table = table_mapper_update(context->mapper, relid, topic_name,
             key_schema_json, key_schema_len, row_schema_json, row_schema_len);
@@ -535,34 +518,34 @@ static int on_table_schema(void *ctx, uint64_t wal_pos, Oid relid,
     return 0;
 }
 
-static int on_insert_row(void *ctx, uint64_t wal_pos, Oid relid,
+
+static int on_insert_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
-    producer_context_t context = (producer_context_t) ctx;
+    producer_context_t context = (producer_context_t) _context;
     return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, new_bin, new_len);
 }
 
-static int on_update_row(void *ctx, uint64_t wal_pos, Oid relid,
+static int on_update_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
-    producer_context_t context = (producer_context_t) ctx;
+    producer_context_t context = (producer_context_t) _context;
     return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, new_bin, new_len);
 }
 
-static int on_delete_row(void *ctx, uint64_t wal_pos, Oid relid,
+static int on_delete_row(void *_context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val) {
-    producer_context_t context = (producer_context_t) ctx;
-
-	if (key_bin)
-		return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, NULL, 0);
+    producer_context_t context = (producer_context_t) _context;
+    if (key_bin)
+        return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, NULL, 0);
     else
         return 0; // delete on unkeyed table --> can't do anything
 }
 
-static int on_keepalive(void *ctx, uint64_t wal_pos) {
-    producer_context_t context = (producer_context_t) ctx;
+static int on_keepalive(void *_context, uint64_t wal_pos) {
+    producer_context_t context = (producer_context_t) _context;
 
     if (xact_list_empty(context)) {
         return 0;
@@ -571,8 +554,8 @@ static int on_keepalive(void *ctx, uint64_t wal_pos) {
     }
 }
 
-static int on_client_error(void *ctx, int err, const char *message) {
-    producer_context_t context = (producer_context_t) ctx;
+static int on_client_error(void *_context, int err, const char *message) {
+    producer_context_t context = (producer_context_t) _context;
     return handle_error(context, err, "Client error: %s", message);
 }
 
@@ -784,7 +767,7 @@ client_context_t init_client() {
 /* Initializes the producer context, which holds everything we need to know about
  * our connection to Kafka. */
 producer_context_t init_producer(client_context_t client) {
-    producer_context_t context = malloc(sizeof(producer_context)); if(context == NULL) return NULL;
+    producer_context_t context = malloc(sizeof(producer_context));
     memset(context, 0, sizeof(producer_context));
     client->repl.frame_reader->cb_context = context;
 
@@ -885,11 +868,6 @@ static void handle_shutdown_signal(int sig) {
     received_shutdown_signal = sig;
 }
 
-/* k4m: signal handler SIGUSR2 for reloading config */
-static void handle_reload_signal(int sig) {
-    received_reload_signal = sig;
-    signal(SIGQUIT, handle_reload_signal);
-}
 
 static int make_pidfile(producer_context_t context){
 	FILE * fp = NULL;
@@ -928,7 +906,6 @@ int main(int argc, char **argv) {
     curl_global_init(CURL_GLOBAL_ALL);
     signal(SIGINT, handle_shutdown_signal);
     signal(SIGTERM, handle_shutdown_signal);
-    signal(SIGQUIT, handle_reload_signal); /* k4m */
 
     producer_context_t context = init_producer(init_client());
     parse_options(context, argc, argv);
@@ -954,8 +931,6 @@ int main(int argc, char **argv) {
     } else {
         assert(context->client->taking_snapshot);
     }
-
-	received_reload_signal = 1; /* k4m: in order to get mapping table info when the process start */
 
     while (context->client->status >= 0 && !received_shutdown_signal) {
         ensure(context, db_client_poll(context->client));

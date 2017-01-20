@@ -93,8 +93,8 @@ void parse_options(client_context_t context, int argc, char **argv) {
     if (!context->conninfo || optind < argc) usage();
 }
 
-static int print_begin_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
-    client_context_t context = (client_context_t) ctx;
+static int print_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
+    client_context_t context = (client_context_t) _context;
     if (xid == 0) {
         fprintf(stderr, "Created replication slot \"%s\", capturing consistent snapshot \"%s\".\n",
                 context->repl.slot_name, context->repl.snapshot_name);
@@ -105,8 +105,8 @@ static int print_begin_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
     return 0;
 }
 
-static int print_commit_txn(void *ctx, uint64_t wal_pos, uint32_t xid) {
-    client_context_t context = (client_context_t) ctx;
+static int print_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
+    client_context_t context = (client_context_t) _context;
     if (xid == 0) {
         fprintf(stderr, "Snapshot complete, streaming changes from %X/%X.\n",
                 (uint32) (wal_pos >> 32), (uint32) wal_pos);
@@ -131,7 +131,7 @@ static int print_insert_row(void *context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
     int err = 0;
-    char *key_json = NULL, *new_json = NULL;
+    char *key_json, *new_json;
     const char *table_name = avro_schema_name(avro_value_get_schema(new_val));
     check(err, avro_value_to_json(new_val, 1, &new_json));
 

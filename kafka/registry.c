@@ -32,7 +32,7 @@ void registry_error(schema_registry_t registry, char *fmt, ...) __attribute__ ((
 
 /* Allocates and initializes the schema registry struct. */
 schema_registry_t schema_registry_new(char *url) {
-    schema_registry_t registry = malloc(sizeof(schema_registry)); if(registry == NULL) return NULL;
+    schema_registry_t registry = malloc(sizeof(schema_registry));
     memset(registry, 0, sizeof(schema_registry));
 
     registry->curl = curl_easy_init();
@@ -57,7 +57,7 @@ void schema_registry_set_url(schema_registry_t registry, char *url) {
 
 
 /* Prefixes Avro-encoded key and row records with IDs of the schema used for encoding. Sets
- * key_out and row_out to malloc'ed arrays that are SCHEMA_REGISTRY_MSG_PREFIX_LEN bytes
+ * key_out and row_out to malloc'ed arrays that are SCHEMA_REGISTRY_MESSAGE_PREFIX_LEN bytes
  * longer than the key_len and row_len bytes that were passed in, respectively. The caller is
  * responsible for freeing key_out and row_out. Returns 0 on success, nonzero on error. */
 int schema_registry_encode_msg(int key_schema_id, int row_schema_id,
@@ -65,9 +65,9 @@ int schema_registry_encode_msg(int key_schema_id, int row_schema_id,
         const void *row_bin, size_t row_len, void **row_out, size_t *row_len_out) {
 
     *key_out = add_schema_prefix(key_schema_id, key_bin, key_len);
-    *key_len_out = key_len + SCHEMA_REGISTRY_MSG_PREFIX_LEN;
+    *key_len_out = key_len + SCHEMA_REGISTRY_MESSAGE_PREFIX_LEN;
     *row_out = add_schema_prefix(row_schema_id, row_bin, row_len);
-    *row_len_out = row_len + SCHEMA_REGISTRY_MSG_PREFIX_LEN;
+    *row_len_out = row_len + SCHEMA_REGISTRY_MESSAGE_PREFIX_LEN;
     return 0;
 }
 
@@ -78,10 +78,10 @@ void *add_schema_prefix(int schema_id, const void *avro_bin, size_t avro_len) {
 
     uint32_t schema_id_big_endian = htonl(schema_id);
 
-    char *msg = malloc(avro_len + SCHEMA_REGISTRY_MSG_PREFIX_LEN); if(msg == NULL) return NULL;
+    char *msg = malloc(avro_len + SCHEMA_REGISTRY_MESSAGE_PREFIX_LEN);
     msg[0] = '\0';
     memcpy(msg + 1, &schema_id_big_endian, 4);
-    memcpy(msg + SCHEMA_REGISTRY_MSG_PREFIX_LEN, avro_bin, avro_len);
+    memcpy(msg + SCHEMA_REGISTRY_MESSAGE_PREFIX_LEN, avro_bin, avro_len);
 
     return msg;
 }

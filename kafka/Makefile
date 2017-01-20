@@ -4,7 +4,6 @@ STATICLIB=../client/libbottledwater.a
 POG_HOME?=/postgresql
 bindir=/bin
 
-
 PG_CFLAGS = -I$(shell pg_config --includedir) -I$(shell pg_config --includedir-server) -g -ggdb
 PG_LDFLAGS = -L$(shell pg_config --libdir) -lpq
 KAFKA_CFLAGS =

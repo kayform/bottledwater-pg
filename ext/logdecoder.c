@@ -187,7 +187,6 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
          * failed (so potentially it'll be an empty frame)
          */
     }
-
     if (write_frame(ctx, state)) {
         error_policy_handle(state->error_policy, "output_avro_change: writing Avro binary failed", avro_strerror());
     }

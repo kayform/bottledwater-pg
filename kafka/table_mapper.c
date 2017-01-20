@@ -35,12 +35,12 @@ table_mapper_t table_mapper_new(
         rd_kafka_topic_conf_t *topic_conf,
         schema_registry_t registry,
         const char *topic_prefix) {
-    table_mapper_t mapper = malloc(sizeof(table_mapper)); if(mapper == NULL) return NULL;
+    table_mapper_t mapper = malloc(sizeof(table_mapper));
     memset(mapper, 0, sizeof(table_mapper));
 
     mapper->num_tables = 0;
     mapper->capacity = 16;
-    mapper->tables = malloc(mapper->capacity * sizeof(void*)); if(mapper == NULL){ free(mapper); return NULL;}
+    mapper->tables = malloc(mapper->capacity * sizeof(void*));
 
     mapper->kafka = kafka;
     mapper->topic_conf = topic_conf;
@@ -119,17 +119,17 @@ table_metadata_t table_mapper_update(table_mapper_t mapper, Oid relid,
     int err;
 
     err = table_metadata_update_topic(mapper, table, table_name);
-    if (err) /*goto error;*/ { if (table) table->deleted = 1; return NULL;}
+    if (err) goto error;
 
     err = table_metadata_update_schema(mapper, table, 1, key_schema_json, key_schema_len);
-    if (err) /*goto error;*/ { if (table) table->deleted = 1; return NULL;}
+    if (err) goto error;
 
     err = table_metadata_update_schema(mapper, table, 0, row_schema_json, row_schema_len);
-    if (err) /*goto error;*/ { if (table) table->deleted = 1; return NULL;}
+    if (err) goto error;
 
     return table;
 
-//error:
+error:
     /* Mark the table as deleted so we don't try to proceed with incomplete
      * information.
      *
@@ -142,8 +142,8 @@ table_metadata_t table_mapper_update(table_mapper_t mapper, Oid relid,
      * N.B. this means the record will *never* be freed!  So we should revisit
      * this if we anticipate having a large number of deleted records.
      */
-//    if (table) table->deleted = 1;
-//    return NULL;
+    if (table) table->deleted = 1;
+    return NULL;
 }
 
 /* Destroys the table mapper along with all stored metadata.  Will close any
@@ -166,10 +166,10 @@ void table_mapper_free(table_mapper_t mapper) {
 table_metadata_t table_metadata_new(table_mapper_t mapper, Oid relid) {
     if (mapper->num_tables == mapper->capacity) {
         mapper->capacity *= 4;
-        mapper->tables = realloc(mapper->tables, mapper->capacity * sizeof(void*)); if(mapper->tables == NULL) return NULL;
+        mapper->tables = realloc(mapper->tables, mapper->capacity * sizeof(void*));
     }
 
-    table_metadata_t table = malloc(sizeof(table_metadata)); if(table == NULL) return NULL;
+    table_metadata_t table = malloc(sizeof(table_metadata));
     memset(table, 0, sizeof(table_metadata));
     mapper->tables[mapper->num_tables] = table;
     mapper->num_tables++;
@@ -213,7 +213,7 @@ int table_metadata_update_topic(table_mapper_t mapper, table_metadata_t table, c
         char prefixed_name[TABLE_MAPPER_MAX_TOPIC_LEN];
         int size = snprintf(prefixed_name, TABLE_MAPPER_MAX_TOPIC_LEN,
                 "%s%c%s",
-                mapper->topic_prefix, TABLE_MAPPER_TOPIC_PREFIX_DEL, table_name);
+                mapper->topic_prefix, TABLE_MAPPER_TOPIC_PREFIX_DELIMITER, table_name);
 
         if (size >= TABLE_MAPPER_MAX_TOPIC_LEN) {
             mapper_error(mapper, "prefixed topic name is too long (max %d bytes): prefix %s, table name %s",

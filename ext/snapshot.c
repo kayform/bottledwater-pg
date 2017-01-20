@@ -333,7 +333,7 @@ void close_current_table(export_state *state) {
  * This function encodes that tuple as Avro and returns it as a byte array. */
 bytea *format_snapshot_row(export_state *state) {
     export_table *table = &state->tables[state->current_table];
-    bytea *output=NULL;
+    bytea *output;
 
     if (SPI_processed != 1) {
         elog(ERROR, "Expected exactly 1 row from cursor, but got %d rows", SPI_processed);
@@ -364,7 +364,7 @@ bytea *format_snapshot_row(export_state *state) {
  * or the key (replica identity) of the table. */
 bytea *schema_for_relname(char *relname, bool get_key) {
     int err;
-    bytea *json=NULL;
+    bytea *json;
     avro_schema_t schema;
     List *relname_list = stringToQualifiedNameList(relname);
     RangeVar *relvar = makeRangeVarFromNameList(relname_list);
