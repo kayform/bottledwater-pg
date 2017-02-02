@@ -26,6 +26,7 @@ CREATE OR REPLACE FUNCTION bottledwater_export(
     AS 'bottledwater', 'bottledwater_export' LANGUAGE C VOLATILE STRICT;
 
 -- Create column mappng tables
+DROP TABLE IF EXISTS public.col_mapps;
 CREATE TABLE public.col_mapps
 (
   reloid oid NOT NULL,
@@ -35,7 +36,7 @@ CREATE TABLE public.col_mapps
   create_user character varying(100) NOT NULL DEFAULT "current_user"(),
   remark character varying(1000),
   CONSTRAINT pk_col_mapps PRIMARY KEY (reloid, column_name)
-)
+);
 
 COMMENT ON COLUMN col_mapps.reloid is '테이블 OID';
 COMMENT ON COLUMN col_mapps.column_name is '컬럼명';
