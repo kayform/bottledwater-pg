@@ -142,23 +142,23 @@ char* topic_name_from_avro_schema(avro_schema_t schema);
 
 static int handle_error(producer_context_t context, int err, const char *fmt, ...) __attribute__ ((format (printf, 3, 4)));
 
-static int on_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid);
-static int on_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid);
-static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
+static int on_begin_txn(void *pcontext, uint64_t wal_pos, uint32_t xid);
+static int on_commit_txn(void *pcontext, uint64_t wal_pos, uint32_t xid);
+static int on_table_schema(void *pcontext, uint64_t wal_pos, Oid relid,
         const char *key_schema_json, size_t key_schema_len, avro_schema_t key_schema,
         const char *row_schema_json, size_t row_schema_len, avro_schema_t row_schema);
-static int on_insert_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_insert_row(void *pcontext, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val);
-static int on_update_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_update_row(void *pcontext, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val);
-static int on_delete_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_delete_row(void *pcontext, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val);
-static int on_keepalive(void *_context, uint64_t wal_pos);
-static int on_client_error(void *_context, int err, const char *message);
+static int on_keepalive(void *pcontext, uint64_t wal_pos);
+static int on_client_error(void *pcontext, int err, const char *message);
 int send_kafka_msg(producer_context_t context, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len,
         const void *val_bin, size_t val_len);
@@ -440,8 +440,8 @@ static int handle_error(producer_context_t context, int err, const char *fmt, ..
 }
 
 
-static int on_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
-    producer_context_t context = (producer_context_t) _context;
+static int on_begin_txn(void *pcontext, uint64_t wal_pos, uint32_t xid) {
+    producer_context_t context = (producer_context_t) pcontext;
     replication_stream_t stream = &context->client->repl;
 
     if (xid == 0) {
@@ -472,8 +472,8 @@ static int on_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
     return 0;
 }
 
-static int on_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
-    producer_context_t context = (producer_context_t) _context;
+static int on_commit_txn(void *pcontext, uint64_t wal_pos, uint32_t xid) {
+    producer_context_t context = (producer_context_t) pcontext;
     transaction_info *xact = &context->xact_list[context->xact_head];
 
     if (xid == 0) {
@@ -493,10 +493,10 @@ static int on_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
 }
 
 
-static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
+static int on_table_schema(void *pcontext, uint64_t wal_pos, Oid relid,
         const char *key_schema_json, size_t key_schema_len, avro_schema_t key_schema,
         const char *row_schema_json, size_t row_schema_len, avro_schema_t row_schema) {
-    producer_context_t context = (producer_context_t) _context;
+    producer_context_t context = (producer_context_t) pcontext;
 
     char *topic_name = topic_name_from_avro_schema(row_schema);
 
@@ -519,33 +519,33 @@ static int on_table_schema(void *_context, uint64_t wal_pos, Oid relid,
 }
 
 
-static int on_insert_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_insert_row(void *pcontext, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
-    producer_context_t context = (producer_context_t) _context;
+    producer_context_t context = (producer_context_t) pcontext;
     return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, new_bin, new_len);
 }
 
-static int on_update_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_update_row(void *pcontext, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val,
         const void *new_bin, size_t new_len, avro_value_t *new_val) {
-    producer_context_t context = (producer_context_t) _context;
+    producer_context_t context = (producer_context_t) pcontext;
     return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, new_bin, new_len);
 }
 
-static int on_delete_row(void *_context, uint64_t wal_pos, Oid relid,
+static int on_delete_row(void *pcontext, uint64_t wal_pos, Oid relid,
         const void *key_bin, size_t key_len, avro_value_t *key_val,
         const void *old_bin, size_t old_len, avro_value_t *old_val) {
-    producer_context_t context = (producer_context_t) _context;
+    producer_context_t context = (producer_context_t) pcontext;
     if (key_bin)
         return send_kafka_msg(context, wal_pos, relid, key_bin, key_len, NULL, 0);
     else
         return 0; // delete on unkeyed table --> can't do anything
 }
 
-static int on_keepalive(void *_context, uint64_t wal_pos) {
-    producer_context_t context = (producer_context_t) _context;
+static int on_keepalive(void *pcontext, uint64_t wal_pos) {
+    producer_context_t context = (producer_context_t) pcontext;
 
     if (xact_list_empty(context)) {
         return 0;
@@ -554,8 +554,8 @@ static int on_keepalive(void *_context, uint64_t wal_pos) {
     }
 }
 
-static int on_client_error(void *_context, int err, const char *message) {
-    producer_context_t context = (producer_context_t) _context;
+static int on_client_error(void *pcontext, int err, const char *message) {
+    producer_context_t context = (producer_context_t) pcontext;
     return handle_error(context, err, "Client error: %s", message);
 }
 

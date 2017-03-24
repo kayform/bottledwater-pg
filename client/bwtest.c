@@ -93,8 +93,8 @@ void parse_options(client_context_t context, int argc, char **argv) {
     if (!context->conninfo || optind < argc) usage();
 }
 
-static int print_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
-    client_context_t context = (client_context_t) _context;
+static int print_begin_txn(void *pcontext, uint64_t wal_pos, uint32_t xid) {
+    client_context_t context = (client_context_t) pcontext;
     if (xid == 0) {
         fprintf(stderr, "Created replication slot \"%s\", capturing consistent snapshot \"%s\".\n",
                 context->repl.slot_name, context->repl.snapshot_name);
@@ -105,8 +105,8 @@ static int print_begin_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
     return 0;
 }
 
-static int print_commit_txn(void *_context, uint64_t wal_pos, uint32_t xid) {
-    client_context_t context = (client_context_t) _context;
+static int print_commit_txn(void *pcontext, uint64_t wal_pos, uint32_t xid) {
+    client_context_t context = (client_context_t) pcontext;
     if (xid == 0) {
         fprintf(stderr, "Snapshot complete, streaming changes from %X/%X.\n",
                 (uint32) (wal_pos >> 32), (uint32) wal_pos);
