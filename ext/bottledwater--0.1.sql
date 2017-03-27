@@ -118,7 +118,7 @@ CREATE TABLE public.col_mapps_hist
   mod_user varchar(100) not null default current_user,
   mod_type varchar(100) not null,
   remark character varying(1000),
-  CONSTRAINT pk_col_mapps PRIMARY KEY (reloid, column_name)
+  CONSTRAINT pk_col_mapps_hist PRIMARY KEY (reloid, column_name)
 );
 
 COMMENT ON COLUMN col_mapps_hist.reloid is '테이블 OID';
