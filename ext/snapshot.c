@@ -144,7 +144,7 @@ Datum bottledwater_export(PG_FUNCTION_ARGS) {
         state->error_policy = parse_error_policy(TextDatumGetCString(PG_GETARG_TEXT_P(2)));
 
         get_table_list(state, table_pattern, allow_unkeyed);
-		load_init_mapping_info(state->schema_cache);
+		load_mapping_info(state->schema_cache);
         if (state->num_tables > 0) open_next_table(state);
     }
 

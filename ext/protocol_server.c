@@ -9,6 +9,7 @@
 #include <string.h>
 #include "executor/spi.h" 
 #include "access/heapam.h"
+#include "utils/builtins.h"
 
 int extract_tuple_key(schema_cache_entry *entry, Relation rel, TupleDesc tupdesc, HeapTuple tuple, bytea **key_out);
 int update_frame_with_table_schema(avro_value_t *frame_val, schema_cache_entry *entry);
@@ -16,6 +17,7 @@ int update_frame_with_insert_raw(avro_value_t *frame_val, Oid relid, bytea *key_
 int update_frame_with_update_raw(avro_value_t *frame_val, Oid relid, bytea *key_bin, bytea *old_bin, bytea *new_bin);
 int update_frame_with_delete_raw(avro_value_t *frame_val, Oid relid, bytea *key_bin, bytea *old_bin);
 
+Oid master_reloid = 0;
 /* Populates a wire protocol message for a "begin transaction" event. */
 int update_frame_with_begin_txn(avro_value_t *frame_val, ReorderBufferTXN *txn) {
     int err = 0;
@@ -78,19 +80,27 @@ int extract_tuple_key(schema_cache_entry *entry, Relation rel, TupleDesc tupdesc
  * columns omitted. */
 int update_frame_with_insert(avro_value_t *frame_val, schema_cache_t cache, Relation rel, TupleDesc tupdesc, HeapTuple newtuple) {
     int err = 0;
+	int changed = 0;
     schema_cache_entry *entry;
     bytea *key_bin = NULL, *new_bin = NULL;
 
-    int changed = schema_cache_lookup(cache, rel, &entry);
+	if(master_reloid == RelationGetRelid(rel)){
+		update_col_mapps(cache, tupdesc, newtuple, 1); 
+		return 129;
+	}
+
+    changed = schema_cache_lookup(cache, rel, &entry);
+
     if (changed < 0) {
-		if(changed == -3)
-			return 129;
-		else
-			return EINVAL;
+		return EINVAL;
     } else if (changed) {
         check(err, update_frame_with_table_schema(frame_val, entry));
     }
 
+	if(!strlen(entry->white_columns)){
+		return 129;
+	}
+	
     check(err, extract_tuple_key(entry, rel, tupdesc, newtuple, &key_bin));
     check(err, avro_value_reset(&entry->row_value));
     check(err, tuple_to_avro_row(&entry->row_value, tupdesc, newtuple, entry->white_columns));
@@ -111,13 +121,13 @@ int update_frame_with_update(avro_value_t *frame_val, schema_cache_t cache, Rela
 
     int changed = schema_cache_lookup(cache, rel, &entry);
     if (changed < 0) {
-		if(changed == -3)
-			return 129;
-		else
-			return EINVAL;
+		return EINVAL;
     } else if (changed) {
         check(err, update_frame_with_table_schema(frame_val, entry));
     }
+
+	if(!strlen(entry->white_columns))
+		return 129;
 
     /* oldtuple is non-NULL when replident = FULL, or when replident = DEFAULT and there is no
      * primary key, or replident = DEFAULT and the primary key was not modified by the update. */
@@ -155,16 +165,22 @@ int update_frame_with_delete(avro_value_t *frame_val, schema_cache_t cache, Rela
     int err = 0;
     schema_cache_entry *entry;
     bytea *key_bin = NULL, *old_bin = NULL;
+    int changed = 0;
 
-    int changed = schema_cache_lookup(cache, rel, &entry);
+	if(master_reloid == RelationGetRelid(rel)){
+		update_col_mapps(cache, RelationGetDescr(rel), oldtuple, 0); 
+		return 129;
+	}
+
+    changed = schema_cache_lookup(cache, rel, &entry);
     if (changed < 0) {
-		if(changed == -3)
-			return 129;
-		else
-			return EINVAL;
+		return EINVAL;
     } else if (changed) {
         check(err, update_frame_with_table_schema(frame_val, entry));
     }
+
+	if(!strlen(entry->white_columns))
+		return 129;
 
     if (oldtuple) {
         check(err, extract_tuple_key(entry, rel, RelationGetDescr(rel), oldtuple, &key_bin));
@@ -298,13 +314,13 @@ int update_frame_with_delete_raw(avro_value_t *frame_val, Oid relid, bytea *key_
     return err;
 }
 
-Oid load_init_mapping_info(schema_cache_t cache) {
+Oid load_mapping_info(schema_cache_t cache) {
 	int ret = 0, proc = 0, i;
 	bool is_null = false, found_entry = false;
 	char *pcol_name;
     schema_cache_entry *entry = NULL;
-	
-	ret = SPI_exec("select reloid, column_name from col_mapps order by reloid, ordinal_position", 0);
+
+	ret = SPI_exec("select reloid, column_name from col_mapps order by reloid, colseq", 0);
     if (ret > 0 && SPI_tuptable != NULL && SPI_processed > 0){
 		Oid relid = 0,  prev_relid = 0;
 		TupleDesc tupdesc = SPI_tuptable->tupdesc;
@@ -321,6 +337,8 @@ Oid load_init_mapping_info(schema_cache_t cache) {
 				entry = (schema_cache_entry*)
 					hash_search(cache->entries, &relid, HASH_ENTER, &found_entry);
 				if(entry){
+					entry->changed_white_columns = 1;
+					memset(entry->white_columns, 0x00, sizeof(entry->white_columns));
 					strcat(entry->white_columns, pcol_name);
 					strcat(entry->white_columns, ":");
 					prev_relid = relid;
@@ -340,3 +358,37 @@ Oid load_init_mapping_info(schema_cache_t cache) {
 	return ret;
 }
 
+int update_col_mapps(schema_cache_t cache, TupleDesc tupdesc, HeapTuple tuple, int action) {
+    int err = 0;
+	char *columns = NULL, *tofree = NULL, *column_name;
+	char *tok = NULL, *del = ":";
+	bool found_entry = false, isnull = false;
+	Oid reloid = 0;
+    schema_cache_entry *entry = NULL;
+    Datum datum = heap_getattr(tuple, 1, tupdesc, &isnull);
+    if (isnull) {
+    } else {
+		reloid = DatumGetObjectId(datum);
+		entry = (schema_cache_entry*) hash_search(cache->entries, &reloid, HASH_ENTER, &found_entry);
+		if(entry){
+			datum = heap_getattr(tuple, 2, tupdesc, &isnull);
+			column_name = TextDatumGetCString(datum);
+			if(action == 1){
+				strncat(entry->white_columns, column_name, NAMEDATALEN);
+				strncat(entry->white_columns, ":", NAMEDATALEN);
+			} else{
+				tofree = columns = pstrdup(entry->white_columns);
+				memset(entry->white_columns, 0x00, sizeof(entry->white_columns));
+				while((tok = strsep(&columns, del)) != NULL){
+					if(strncmp(column_name, tok, NAMEDATALEN) && strlen(tok)){
+						strncat(entry->white_columns, tok, NAMEDATALEN);
+						strncat(entry->white_columns, ":", NAMEDATALEN);
+					}
+				}
+				pfree(tofree);
+			}
+			entry->changed_white_columns = 1;
+		}
+    }
+    return err;
+}

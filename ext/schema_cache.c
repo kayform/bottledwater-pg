@@ -60,7 +60,7 @@ int schema_cache_lookup(schema_cache_t cache, Relation rel, schema_cache_entry *
             /* Schema has changed since we last saw it -- update the cache */
             schema_cache_entry_decrefs(entry);
             err = schema_cache_entry_update(cache, entry, rel);
-            if (err) {
+			if (err) {
                 *entry_out = NULL;
                 return -1;
             }
@@ -68,7 +68,14 @@ int schema_cache_lookup(schema_cache_t cache, Relation rel, schema_cache_entry *
             return 1;
         }
     } else {
-		return -3;
+	        /* Schema not previously seen -- populate a new cache entry */
+        err = schema_cache_entry_update(cache, entry, rel);
+		if (err) {
+            *entry_out = NULL;
+            return -2;
+        }
+        *entry_out = entry;
+        return 2;	
     }
 }
 
@@ -104,6 +111,9 @@ int schema_cache_entry_update(schema_cache_t cache, schema_cache_entry *entry, R
     }
     entry->row_tupdesc = CreateTupleDescCopyConstr(RelationGetDescr(rel));
     MemoryContextSwitchTo(oldctx);
+
+//	if(!strlen(entry->white_columns))
+//		return -3;
 
     err = schema_for_table_key(rel, &entry->key_schema, entry->white_columns);
     if (err) return err;
@@ -147,6 +157,11 @@ bool schema_cache_entry_changed(schema_cache_entry *entry, Relation rel) {
         changed = true;
     }
 
+	if (entry->changed_white_columns){
+		entry->changed_white_columns = 0;
+		changed = true;
+	}
+
     if (index_rel) {
         relation_close(index_rel, AccessShareLock);
     }
@@ -174,7 +189,7 @@ void schema_cache_entry_decrefs(schema_cache_entry *entry) {
     }
 
 //    memset(entry, 0, sizeof(schema_cache_entry));
-    memset(entry, 0, sizeof(schema_cache_entry)-sizeof(entry->white_columns));
+    memset(entry, 0, sizeof(schema_cache_entry)-(sizeof(entry->white_columns)+sizeof(entry->changed_white_columns)));
 }
 
 /* Frees all the memory structures associated with a schema cache. */

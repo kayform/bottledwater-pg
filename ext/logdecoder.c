@@ -28,7 +28,7 @@ typedef struct {
     error_policy_t error_policy;
 } plugin_state;
 
-static Oid master_reloid = 0;
+extern Oid master_reloid ;
 void reset_frame(plugin_state *state);
 int write_frame(LogicalDecodingContext *ctx, plugin_state *state);
 Oid get_master_reloid(void);
@@ -138,7 +138,7 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
 			elog(ERROR, "bottledwater_export: SPI_connect returned %d", err);
 		}
 		master_reloid = get_master_reloid();
-		load_init_mapping_info(state->schema_cache);
+		load_mapping_info(state->schema_cache);
 		SPI_finish();
 	}
 
@@ -169,13 +169,16 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
             }
             err = update_frame_with_delete(&state->frame_value, state->schema_cache, rel, oldtuple);
             break;
+        case REORDER_BUFFER_CHANGE_INTERNAL_SPEC_CONFIRM:
+			err = 129;
+			break;
 
         default:
             elog(ERROR, "output_avro_change: unknown change action %d", change->action);
     }
 
     if (err == 129) {
-        elog(INFO, "Skip table: %s", schema_debug_info(rel, NULL));
+        elog(INFO, "Skip table: %d", RelationGetRelid(rel));
 		MemoryContextSwitchTo(oldctx);
 		MemoryContextReset(state->memctx);
 		return ;

@@ -21,7 +21,9 @@ typedef struct {
     avro_value_iface_t *row_iface;   /* Avro generic interface for creating row values */
     avro_value_t        key_value;   /* Avro key value, for encoding one key */
     avro_value_t        row_value;   /* Avro row value, for encoding one row */
-	char				white_columns[NAMEDATALEN*64];
+	int					split;
+	int					changed_white_columns;
+	char				white_columns[NAMEDATALEN*48];
 } schema_cache_entry;
 
 typedef struct {
