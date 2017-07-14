@@ -84,6 +84,7 @@ int update_frame_with_insert(avro_value_t *frame_val, schema_cache_t cache, Rela
     schema_cache_entry *entry;
     bytea *key_bin = NULL, *new_bin = NULL;
 
+/* K4M : skip to write change data for col_mapps table and update col_mapps entry*/
 	if(master_reloid == RelationGetRelid(rel)){
 		update_col_mapps(cache, tupdesc, newtuple, 1); 
 		return 129;
@@ -97,12 +98,14 @@ int update_frame_with_insert(avro_value_t *frame_val, schema_cache_t cache, Rela
         check(err, update_frame_with_table_schema(frame_val, entry));
     }
 
+/* K4M : skip to write change data, if white columns has no data */
 	if(!strlen(entry->white_columns)){
 		return 129;
 	}
 	
     check(err, extract_tuple_key(entry, rel, tupdesc, newtuple, &key_bin));
     check(err, avro_value_reset(&entry->row_value));
+/* K4M : add param white comumns for table */
     check(err, tuple_to_avro_row(&entry->row_value, tupdesc, newtuple, entry->white_columns));
     check(err, try_writing(&new_bin, &write_avro_binary, &entry->row_value));
     check(err, update_frame_with_insert_raw(frame_val, RelationGetRelid(rel), key_bin, new_bin));
@@ -118,14 +121,17 @@ int update_frame_with_update(avro_value_t *frame_val, schema_cache_t cache, Rela
     int err = 0;
     schema_cache_entry *entry;
     bytea *old_bin = NULL, *new_bin = NULL, *old_key_bin = NULL, *new_key_bin = NULL;
-
+/* K4M : skip to write change data for col_mapps table and update col_mapps entry*/
+	if(master_reloid == RelationGetRelid(rel)){		
+		return 129;
+	}
     int changed = schema_cache_lookup(cache, rel, &entry);
     if (changed < 0) {
 		return EINVAL;
     } else if (changed) {
         check(err, update_frame_with_table_schema(frame_val, entry));
     }
-
+/* K4M : skip to write change data, if white columns has no data */
 	if(!strlen(entry->white_columns))
 		return 129;
 
@@ -134,12 +140,14 @@ int update_frame_with_update(avro_value_t *frame_val, schema_cache_t cache, Rela
     if (oldtuple) {
         check(err, extract_tuple_key(entry, rel, RelationGetDescr(rel), oldtuple, &old_key_bin));
         check(err, avro_value_reset(&entry->row_value));
+/* K4M : add param white comumns for table */
         check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), oldtuple, entry->white_columns));
         check(err, try_writing(&old_bin, &write_avro_binary, &entry->row_value));
     }
 
     check(err, extract_tuple_key(entry, rel, RelationGetDescr(rel), newtuple, &new_key_bin));
     check(err, avro_value_reset(&entry->row_value));
+/* K4M : add param white comumns for table */
     check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), newtuple, entry->white_columns));
     check(err, try_writing(&new_bin, &write_avro_binary, &entry->row_value));
 
@@ -166,7 +174,7 @@ int update_frame_with_delete(avro_value_t *frame_val, schema_cache_t cache, Rela
     schema_cache_entry *entry;
     bytea *key_bin = NULL, *old_bin = NULL;
     int changed = 0;
-
+/* K4M : skip to write change data for col_mapps table and update col_mapps entry*/
 	if(master_reloid == RelationGetRelid(rel)){
 		update_col_mapps(cache, RelationGetDescr(rel), oldtuple, 0); 
 		return 129;
@@ -178,13 +186,14 @@ int update_frame_with_delete(avro_value_t *frame_val, schema_cache_t cache, Rela
     } else if (changed) {
         check(err, update_frame_with_table_schema(frame_val, entry));
     }
-
+/* K4M : skip to write change data, if white columns has no data */
 	if(!strlen(entry->white_columns))
 		return 129;
 
     if (oldtuple) {
         check(err, extract_tuple_key(entry, rel, RelationGetDescr(rel), oldtuple, &key_bin));
         check(err, avro_value_reset(&entry->row_value));
+/* K4M : add param white comumns for table */
         check(err, tuple_to_avro_row(&entry->row_value, RelationGetDescr(rel), oldtuple, entry->white_columns));
         check(err, try_writing(&old_bin, &write_avro_binary, &entry->row_value));
     }
@@ -313,7 +322,7 @@ int update_frame_with_delete_raw(avro_value_t *frame_val, Oid relid, bytea *key_
     }
     return err;
 }
-
+/* K4M : load white columns from col_mapps*/
 Oid load_mapping_info(schema_cache_t cache) {
 	int ret = 0, proc = 0, i;
 	bool is_null = false, found_entry = false;
@@ -358,6 +367,7 @@ Oid load_mapping_info(schema_cache_t cache) {
 	return ret;
 }
 
+/* K4M : update white columns from col_mapps*/
 int update_col_mapps(schema_cache_t cache, TupleDesc tupdesc, HeapTuple tuple, int action) {
     int err = 0;
 	char *columns = NULL, *tofree = NULL, *column_name;

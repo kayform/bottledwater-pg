@@ -3,7 +3,7 @@
 #include "oid2avro.h"
 #include "error_policy.h"
 
-#include "executor/spi.h" 
+#include "executor/spi.h" //K4M 
 #include "replication/logical.h"
 #include "replication/output_plugin.h"
 #include "utils/builtins.h"
@@ -28,10 +28,10 @@ typedef struct {
     error_policy_t error_policy;
 } plugin_state;
 
-extern Oid master_reloid ;
+extern Oid master_reloid ; /* K4M : reloid of repository table : col_mapps*/
 void reset_frame(plugin_state *state);
 int write_frame(LogicalDecodingContext *ctx, plugin_state *state);
-Oid get_master_reloid(void);
+Oid get_master_reloid(void); /* K4M : reloid of repository table : col_mapps*/
 
 void _PG_init() {
 }
@@ -133,6 +133,7 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
     MemoryContext oldctx = MemoryContextSwitchTo(state->memctx);
     reset_frame(state);
 
+/* K4M : On start up, set master_reloid */
 	if(master_reloid == 0){
 		if ((err = SPI_connect()) < 0) {
 			elog(ERROR, "bottledwater_export: SPI_connect returned %d", err);
@@ -169,6 +170,7 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
             }
             err = update_frame_with_delete(&state->frame_value, state->schema_cache, rel, oldtuple);
             break;
+/* K4M : Skip table or column  */
         case REORDER_BUFFER_CHANGE_INTERNAL_SPEC_CONFIRM:
 			err = 129;
 			break;
@@ -176,7 +178,7 @@ static void output_avro_change(LogicalDecodingContext *ctx, ReorderBufferTXN *tx
         default:
             elog(ERROR, "output_avro_change: unknown change action %d", change->action);
     }
-
+/* K4M : Skip table or column  */
     if (err == 129) {
         elog(INFO, "Skip table: %d", RelationGetRelid(rel));
 		MemoryContextSwitchTo(oldctx);
@@ -218,6 +220,7 @@ int write_frame(LogicalDecodingContext *ctx, plugin_state *state) {
     return err;
 }
 
+/* K4M : get master_reloid  */
 Oid get_master_reloid(void) {
 	Oid ret;
 	bool is_null = false;

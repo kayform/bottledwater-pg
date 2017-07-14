@@ -25,7 +25,7 @@ CREATE OR REPLACE FUNCTION bottledwater_export(
     ) RETURNS setof bytea
     AS 'bottledwater', 'bottledwater_export' LANGUAGE C VOLATILE STRICT;
 
--- Create metadata tables
+-- Create metadata tables K4M
 DROP TABLE IF EXISTS public.tbl_mapps;
 CREATE TABLE tbl_mapps
 (

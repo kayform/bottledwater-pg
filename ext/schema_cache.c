@@ -60,7 +60,7 @@ int schema_cache_lookup(schema_cache_t cache, Relation rel, schema_cache_entry *
             /* Schema has changed since we last saw it -- update the cache */
             schema_cache_entry_decrefs(entry);
             err = schema_cache_entry_update(cache, entry, rel);
-			if (err) {
+            if (err) {
                 *entry_out = NULL;
                 return -1;
             }
@@ -68,14 +68,14 @@ int schema_cache_lookup(schema_cache_t cache, Relation rel, schema_cache_entry *
             return 1;
         }
     } else {
-	        /* Schema not previously seen -- populate a new cache entry */
+        /* Schema not previously seen -- populate a new cache entry */
         err = schema_cache_entry_update(cache, entry, rel);
-		if (err) {
+        if (err) {
             *entry_out = NULL;
             return -2;
         }
         *entry_out = entry;
-        return 2;	
+        return 2;
     }
 }
 
@@ -111,12 +111,10 @@ int schema_cache_entry_update(schema_cache_t cache, schema_cache_entry *entry, R
     }
     entry->row_tupdesc = CreateTupleDescCopyConstr(RelationGetDescr(rel));
     MemoryContextSwitchTo(oldctx);
-
-//	if(!strlen(entry->white_columns))
-//		return -3;
-
+/* K4M : add param white comumns for table */
     err = schema_for_table_key(rel, &entry->key_schema, entry->white_columns);
     if (err) return err;
+/* K4M : add param white comumns for table */
     err = schema_for_table_row(rel, &entry->row_schema, entry->white_columns);
     if (err) return err;
     entry->row_iface = avro_generic_class_from_schema(entry->row_schema);
@@ -156,7 +154,7 @@ bool schema_cache_entry_changed(schema_cache_entry *entry, Relation rel) {
     } else if (index_rel || OidIsValid(entry->key_id)) {
         changed = true;
     }
-
+/* K4M : update schema_cache_entry when changed white_columns*/
 	if (entry->changed_white_columns){
 		entry->changed_white_columns = 0;
 		changed = true;
@@ -175,10 +173,12 @@ void schema_cache_entry_decrefs(schema_cache_entry *entry) {
     if (entry->key_tupdesc) pfree(entry->key_tupdesc);
     if (entry->row_tupdesc) pfree(entry->row_tupdesc);
 
+/* K4M : check NULL*/
 	if(entry->row_iface != NULL){
 		avro_value_decref(&entry->row_value);
 		avro_value_iface_decref(entry->row_iface);
 	}
+/* K4M : check NULL*/
 	if(entry->row_schema != NULL)
 		avro_schema_decref(entry->row_schema);
 
@@ -189,6 +189,7 @@ void schema_cache_entry_decrefs(schema_cache_entry *entry) {
     }
 
 //    memset(entry, 0, sizeof(schema_cache_entry));
+/* K4M : check NULL*/
     memset(entry, 0, sizeof(schema_cache_entry)-(sizeof(entry->white_columns)+sizeof(entry->changed_white_columns)));
 }
 

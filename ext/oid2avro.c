@@ -97,6 +97,7 @@ Relation table_key_index(Relation rel) {
  *
  * Returns 0 if successful, nonzero if an error occurred generating the schema.
  * If the table is unkeyed, sets *schema_out to NULL and returns 0. */
+/* K4M : add param white comumns for table */
 int schema_for_table_key(Relation rel, avro_schema_t *schema_out, char* wcolumns) {
     Relation index_rel;
     int err;
@@ -106,7 +107,7 @@ int schema_for_table_key(Relation rel, avro_schema_t *schema_out, char* wcolumns
         *schema_out = NULL;
         return 0;
     }
-
+/* K4M : add param white comumns for table */
     err = schema_for_table_row(index_rel, schema_out, wcolumns);
 
     relation_close(index_rel, AccessShareLock);
@@ -119,6 +120,7 @@ int schema_for_table_key(Relation rel, avro_schema_t *schema_out, char* wcolumns
  *
  * Returns 0 if successful, nonzero if an error occurred generating the schema.
  * If the table is unkeyed, sets *schema_out to NULL and returns 0. */
+/* K4M : add param white comumns for table */
 int schema_for_table_row(Relation rel, avro_schema_t *schema_out, char* wcolumns) {
     char *rel_namespace, *relname, *relname_avro_safe, *rel_namespace_avro_safe;
     char *attname_avro_safe;
@@ -169,6 +171,7 @@ int schema_for_table_row(Relation rel, avro_schema_t *schema_out, char* wcolumns
         Form_pg_attribute attr = tupdesc->attrs[i];
         if (attr->attisdropped) continue; /* skip dropped columns */
 
+ /* K4M : check whether each attributes exists in white column entry or not */
 		if(wcolumns){
 			tofree = columns = pstrdup(wcolumns);
 			while((tok = strsep(&columns, del)) != NULL){
@@ -199,6 +202,7 @@ int schema_for_table_row(Relation rel, avro_schema_t *schema_out, char* wcolumns
 
 /* Translates a Postgres heap tuple (one row of a table) into the Avro schema generated
  * by schema_for_table_row(). */
+/* K4M : add param white comumns for table */
 int tuple_to_avro_row(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tuple, char* wcolumns) {
     int err = 0, field = 0;
 	char *columns = NULL, *tofree = NULL;
@@ -213,6 +217,7 @@ int tuple_to_avro_row(avro_value_t *output_val, TupleDesc tupdesc, HeapTuple tup
 
         Form_pg_attribute attr = tupdesc->attrs[i];
         if (attr->attisdropped) continue; /* skip dropped columns */
+/* K4M : check whether each attributes exists in white column entry or not */
 		if(wcolumns){
 			tofree = columns = pstrdup(wcolumns);
 			while((tok = strsep(&columns, del)) != NULL){
@@ -333,14 +338,14 @@ avro_schema_t schema_for_oid(predef_schema *predef, Oid typid) {
             value_schema = schema_for_time_tz(predef);
             break;
         case TIMESTAMPOID:   /* timestamp without time zone: datetime, microseconds since epoch */
-#if 0
+#if 0  /* K4M : convert to long postgresql timestap format */
 			return schema_for_timestamp(predef, false);
 #else
 			value_schema = avro_schema_long();
 			break;
 #endif
         case TIMESTAMPTZOID: /* timestamp with time zone, timestamptz: datetime with time zone */
-#if 0
+#if 0 /* K4M : convert to long postgresql timestap format */
             return schema_for_timestamp(predef, true);
 #else
 			value_schema = avro_schema_long();
@@ -408,7 +413,7 @@ int update_avro_with_datum(avro_value_t *output_val, Oid typid, Datum pg_datum) 
     avro_value_t branch_val;
 
     /* Types that handle nullability themselves */
-#if 0
+#if 0 /* K4M : convert to long postgresql timestap format */
     if (typid == DATEOID || typid == TIMESTAMPOID || typid == TIMESTAMPTZOID) {
 #else
     if (typid == DATEOID || typid == TIMESTAMPTZOID) {
@@ -466,7 +471,7 @@ int update_avro_with_datum(avro_value_t *output_val, Oid typid, Datum pg_datum) 
             check(err, update_avro_with_time_tz(&branch_val, DatumGetTimeTzADTP(pg_datum)));
             break;
         case TIMESTAMPOID:
-#if 0
+#if 0 /* K4M : convert to long postgresql timestap format */
             check(err, update_avro_with_timestamp(output_val, false, DatumGetTimestamp(pg_datum)));
 #else
             check(err, avro_value_set_long(&branch_val,
@@ -474,7 +479,7 @@ int update_avro_with_datum(avro_value_t *output_val, Oid typid, Datum pg_datum) 
 #endif
             break;
         case TIMESTAMPTZOID:
-#if 0
+#if 0 /* K4M : convert to long postgresql timestap format */
             check(err, update_avro_with_timestamp(output_val, true, DatumGetTimestampTz(pg_datum)));
 #else
             check(err, avro_value_set_long(&branch_val,

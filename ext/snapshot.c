@@ -144,6 +144,7 @@ Datum bottledwater_export(PG_FUNCTION_ARGS) {
         state->error_policy = parse_error_policy(TextDatumGetCString(PG_GETARG_TEXT_P(2)));
 
         get_table_list(state, table_pattern, allow_unkeyed);
+/* K4M : load master_reloid(col_mapps) */
 		load_mapping_info(state->schema_cache);
         if (state->num_tables > 0) open_next_table(state);
     }
@@ -221,8 +222,7 @@ void get_table_list(export_state *state, text *table_pattern, bool allow_unkeyed
 
             // Join with pg_class again to get the name of the index
             "LEFT JOIN pg_catalog.pg_class ic ON i.indexrelid = ic.oid "
-
-            // Join with tbl_mapps to get mapped table (by bwc API)
+// K4M : Join with tbl_mapps to get mapped table (by bwc API)
 			"JOIN (SELECT reloid FROM col_mapps GROUP BY reloid) cbm ON c.oid = cbm.reloid "
 
             // Select only ordinary tables ('r' == RELKIND_RELATION) matching the required name pattern
@@ -371,8 +371,12 @@ bytea *schema_for_relname(char *relname, bool get_key) {
     Relation rel = relation_openrv(relvar, AccessShareLock);
 
     if (get_key) {
+/* K4M : add param white comumns for table */
+/*       no need white columns because already filtered columns for snapshot */
         err = schema_for_table_key(rel, &schema, NULL);
     } else {
+/* K4M : add param white comumns for table */
+/*       no need white columns because already filtered columns for snapshot */
         err = schema_for_table_row(rel, &schema, NULL);
     }
 
